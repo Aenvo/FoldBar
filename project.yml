@@ -1,0 +1,47 @@
+name: MenuBarOverflow
+options:
+  bundleIdPrefix: local.menubaroverflow
+  deploymentTarget:
+    macOS: "14.0"
+  xcodeVersion: "26.0"
+  createIntermediateGroups: true
+  defaultConfig: Debug
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+targets:
+  MenuBarOverflow:
+    type: application
+    platform: macOS
+    scheme:
+      testTargets:
+        - MenuBarOverflowTests
+    sources:
+      - path: MenuBarOverflow
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: local.menubaroverflow.app
+        GENERATE_INFOPLIST_FILE: true
+        ENABLE_APP_SANDBOX: "NO"
+        ENABLE_HARDENED_RUNTIME: "YES"
+        INFOPLIST_KEY_LSUIElement: true
+        INFOPLIST_KEY_LSApplicationCategoryType: "public.app-category.utilities"
+        INFOPLIST_KEY_NSHumanReadableCopyright: "MenuBarOverflow contributors. MenubarHide portions used under MIT."
+
+  MenuBarOverflowTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: MenuBarOverflowTests
+    dependencies:
+      - target: MenuBarOverflow
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: true
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/MenuBarOverflow.app/Contents/MacOS/MenuBarOverflow"
+        BUNDLE_LOADER: "$(TEST_HOST)"
