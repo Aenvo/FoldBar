@@ -2,7 +2,7 @@
 
 ## MenubarHide
 
-Portions of MenuBarOverflow are adapted from MenubarHide:
+Portions of FoldBar are adapted from MenubarHide:
 
 - https://github.com/junior-rj/menubar-hide
 - Copyright (c) 2026 Sparrow Serviços e Soluções em Informática Ltda
@@ -18,7 +18,7 @@ Hidden Bar was reviewed as an MIT-licensed reference for the oversized `NSStatus
 
 ## Ice
 
-Ice was reviewed only to understand product behavior and macOS 26 failure reports. MenuBarOverflow does not include Ice source code and does not use Ice's private CGS integration.
+Ice was reviewed only to understand product behavior and macOS 26 failure reports. FoldBar does not include Ice source code and does not use Ice's private CGS integration.
 
 - https://github.com/jordanbaird/Ice
 - License: GPL-3.0

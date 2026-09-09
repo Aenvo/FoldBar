@@ -1,7 +1,7 @@
 import CoreGraphics
 import Testing
 
-@testable import MenuBarOverflow
+@testable import FoldBar
 
 @Suite("Overflow discovery")
 struct ScannerTests {
@@ -37,5 +37,17 @@ struct ScannerTests {
         let unrelated = Self.window(3, x: -4400, width: 30)
         let found = MenuBarItemScanner.hiddenItems(among: [Self.separator, adjacent, unrelated])
         #expect(found.map(\.id) == [2])
+    }
+
+    @Test("Expanded items can be found before collapse for flash-free caching")
+    func expandedManagedSection() {
+        let left = Self.window(2, x: 700, width: 30)
+        let right = Self.window(3, x: 740, width: 30)
+        let unrelated = Self.window(4, x: 500, width: 30)
+        let found = MenuBarItemScanner.itemsLeft(
+            of: 780,
+            among: [unrelated, right, left]
+        )
+        #expect(found.map(\.id) == [2, 3])
     }
 }

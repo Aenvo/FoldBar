@@ -1,4 +1,4 @@
-# MenuBarOverflow
+# FoldBar
 
 一个面向刘海屏 Mac 的轻量菜单栏收纳原型。点击菜单栏里的网格按钮，会像 Windows 的托盘溢出一样弹出 5 列图标面板。
 
@@ -8,6 +8,8 @@
 - 点击面板中的代理图标，临时还原真实图标并把点击转发过去。
 - 把面板图标拖到上方的“保持可见”区域，应用会用 macOS 原生的 ⌘-拖动语义把它移回菜单栏可见侧。
 - “整理…”会展开真实菜单栏；按住 ⌘ 把图标拖到分隔符左侧即可收纳，拖到右侧即可保持可见。
+- 在折叠前预先采集图标并保存在内存中；打开面板不再先闪现横向菜单栏。
+- 保留图标原始宽高比；文字、温度和电量等宽图标会自动占 2–3 格。
 - 自动保存有效的 `NSStatusItem Preferred Position`，降低 macOS 26 把图标永久停在屏幕外的风险。
 - 退出前总会展开分隔符，避免应用退出后仍把其他图标留在屏幕外。
 - 可选择登录时启动。
@@ -26,6 +28,8 @@ macOS 没有公开 API 可以把另一个应用的 `NSStatusItem` 直接放进�
 - **屏幕录制**：只截取每个菜单栏小窗口，用于画网格图标；图片仅保存在内存中。
 - **辅助功能**：只在你点击代理图标或拖动到“保持可见”区域时发送对应的鼠标事件。
 
+FoldBar 会用一次说明操作请求两项权限。macOS 仍会分别显示两个系统级确认——系统不提供合并隐私授权的 API——但 FoldBar 不会在每次点击时重复触发请求。
+
 首次授予屏幕录制权限后，macOS 要求重新启动应用。Debug 与正式签名之间切换也可能导致系统重新询问权限。
 
 ## 构建
@@ -33,24 +37,22 @@ macOS 没有公开 API 可以把另一个应用的 `NSStatusItem` 直接放进�
 要求 macOS 14+、Xcode 16+、XcodeGen。
 
 ```bash
-cd MenuBarOverflow
+cd FoldBar
 xcodegen
-xcodebuild -project MenuBarOverflow.xcodeproj \
-  -scheme MenuBarOverflow \
-  -configuration Debug \
-  CODE_SIGNING_ALLOWED=NO build
+xcodebuild -project FoldBar.xcodeproj \
+  -scheme FoldBar \
+  -configuration Debug build
 ```
 
 测试：
 
 ```bash
-xcodebuild -project MenuBarOverflow.xcodeproj \
-  -scheme MenuBarOverflow \
-  -destination 'platform=macOS' \
-  CODE_SIGNING_ALLOWED=NO test
+xcodebuild -project FoldBar.xcodeproj \
+  -scheme FoldBar \
+  -destination 'platform=macOS' test
 ```
 
-未签名 Debug 构建适合编译验证。要长期安装并稳定保留 TCC 权限，需要用同一 Developer ID 签名和公证。
+工程已绑定当前开发团队，普通 Xcode 构建会使用同一 Apple Development 身份，避免因临时签名变化而反复丢失本机权限。公开分发仍需 Developer ID 签名和 Apple 公证。
 
 ## 技术与许可证边界
 

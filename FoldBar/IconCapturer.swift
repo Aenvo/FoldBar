@@ -39,17 +39,13 @@ enum IconCapturer {
             ) {
                 result.append(CapturedItem(
                     window: window,
-                    image: NSImage(cgImage: image, size: normalizedSize(for: window.frame))
+                    // Preserve the real logical size. Replacing it with a
+                    // fixed width changes the image aspect ratio and visibly
+                    // squeezes text meters such as temperatures and battery.
+                    image: NSImage(cgImage: image, size: window.frame.size)
                 ))
             }
         }
         return result
-    }
-
-    /// Keep text-based meters useful without letting one wide item destroy the grid.
-    private static func normalizedSize(for frame: CGRect) -> NSSize {
-        let height = min(max(frame.height, 18), 28)
-        let width = min(max(frame.width, 18), 36)
-        return NSSize(width: width, height: height)
     }
 }

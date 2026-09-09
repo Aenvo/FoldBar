@@ -6,7 +6,7 @@ import Foundation
 enum MenuBarArrangement {
     typealias Snapshot = [String: [String: Double]]
 
-    static let ownDomain = Bundle.main.bundleIdentifier ?? "local.menubaroverflow.app"
+    static let ownDomain = Bundle.main.bundleIdentifier ?? "local.foldbar.app"
     private static let keyPrefix = "NSStatusItem Preferred Position"
     private static let snapshotKey = "savedArrangement"
     private static let validRange: ClosedRange<Double> = 0...10_000

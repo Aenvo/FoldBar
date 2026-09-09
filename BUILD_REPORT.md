@@ -1,30 +1,31 @@
-# Build report
+# FoldBar build report
 
 Verified locally on 2026-09-09 with Xcode 26.6 (17F113), Swift 6.3.3, and the macOS 26.5 SDK.
 
 ## Results
 
 - Debug app-hosted test build: passed.
-- Swift Testing: 10 tests in 3 suites passed.
+- Swift Testing: 14 tests passed.
 - Release build: passed with no source compiler warnings.
 - Release binary: universal `arm64` + `x86_64`.
 - Deployment target: macOS 14.0.
-- Bundle identifier: `local.menubaroverflow.app`.
+- Bundle identifier: `local.foldbar.app`.
 - Hardened runtime: enabled.
 - Archive integrity (`unzip -t`): passed.
 - Code-signature structural verification (`codesign --verify --deep --strict`): passed.
+- Signing identity: Apple Development, team `42MUMXKY79`.
 
 ## Packaged artifact
 
-`dist/MenuBarOverflow-0.1.0-macOS.zip`
+`dist/FoldBar-0.2.0-macOS.zip`
 
 SHA-256:
 
 ```text
-0a74568b14bd353b437cec9bb6b9d62e00176f80e67f41340823a4cdcd3dda03
+d652429f6d76084038805948721a61c2a18a54b9361212f3581799874933c956
 ```
 
-The packaged app is signed ad hoc for local evaluation. It is **not** Developer ID signed or Apple-notarized, so it is not a public release artifact.
+The packaged app is signed with the local Apple Development certificate so its privacy identity remains stable across local builds. It is **not** Developer ID signed or Apple-notarized, so it is not a public release artifact.
 
 ## Test scope
 
@@ -34,5 +35,7 @@ The packaged app is signed ad hoc for local evaluation. It is **not** Developer 
 - Negative X coordinates for displays left of the primary display.
 - Promotion target geometry for drag-to-visible.
 - Defensive position snapshot merge and restore filtering.
+- Expanded-section discovery used for flash-free pre-collapse caching.
+- Adaptive one-, two-, and three-column spans for wide status items.
 
-The app itself was not launched during this verification. Live Screen Recording, Accessibility, click forwarding, and cross-app Command-drag behavior require an interactive signed-app test on the target Mac.
+The earlier 0.1.0 build was interactively tested and exposed the permission repetition, visible capture flash, and aspect-ratio defects addressed in 0.2.0. The new signed build still requires an interactive acceptance pass for Screen Recording, Accessibility, click forwarding, and cross-app Command-drag behavior.

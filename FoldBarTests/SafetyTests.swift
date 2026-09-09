@@ -1,7 +1,7 @@
 import AppKit
 import Testing
 
-@testable import MenuBarOverflow
+@testable import FoldBar
 
 @Suite("Synthetic event safety")
 @MainActor
@@ -75,5 +75,23 @@ struct ArrangementTests {
             key: "NSStatusItem Preferred Position Item-0",
             home: "/Users/example"
         ))
+    }
+}
+
+@Suite("Adaptive overflow grid")
+struct OverflowGridTests {
+    @Test("Ordinary square icons occupy one slot")
+    func squareIcon() {
+        #expect(OverflowGridLayout.columnSpan(for: CGRect(x: 0, y: 0, width: 34, height: 34)) == 1)
+    }
+
+    @Test("A temperature-style meter occupies two slots")
+    func wideMeter() {
+        #expect(OverflowGridLayout.columnSpan(for: CGRect(x: 0, y: 0, width: 89, height: 34)) == 2)
+    }
+
+    @Test("Extremely wide status items are capped at three slots")
+    func veryWideItem() {
+        #expect(OverflowGridLayout.columnSpan(for: CGRect(x: 0, y: 0, width: 220, height: 34)) == 3)
     }
 }

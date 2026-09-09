@@ -15,10 +15,10 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "94724CFF16AED2510C414C26"
-               BuildableName = "MenuBarOverflow.app"
-               BlueprintName = "MenuBarOverflow"
-               ReferencedContainer = "container:MenuBarOverflow.xcodeproj">
+               BlueprintIdentifier = "A357EE3C271F6038B0E6D917"
+               BuildableName = "FoldBar.app"
+               BlueprintName = "FoldBar"
+               ReferencedContainer = "container:FoldBar.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -32,10 +32,10 @@
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "94724CFF16AED2510C414C26"
-            BuildableName = "MenuBarOverflow.app"
-            BlueprintName = "MenuBarOverflow"
-            ReferencedContainer = "container:MenuBarOverflow.xcodeproj">
+            BlueprintIdentifier = "A357EE3C271F6038B0E6D917"
+            BuildableName = "FoldBar.app"
+            BlueprintName = "FoldBar"
+            ReferencedContainer = "container:FoldBar.xcodeproj">
          </BuildableReference>
       </MacroExpansion>
       <Testables>
@@ -44,10 +44,10 @@
             parallelizable = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "E80C1EC4009E07AAFF8A2841"
-               BuildableName = "MenuBarOverflowTests.xctest"
-               BlueprintName = "MenuBarOverflowTests"
-               ReferencedContainer = "container:MenuBarOverflow.xcodeproj">
+               BlueprintIdentifier = "25644D409721E3BB0964F57E"
+               BuildableName = "FoldBarTests.xctest"
+               BlueprintName = "FoldBarTests"
+               ReferencedContainer = "container:FoldBar.xcodeproj">
             </BuildableReference>
          </TestableReference>
       </Testables>
@@ -68,10 +68,10 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "94724CFF16AED2510C414C26"
-            BuildableName = "MenuBarOverflow.app"
-            BlueprintName = "MenuBarOverflow"
-            ReferencedContainer = "container:MenuBarOverflow.xcodeproj">
+            BlueprintIdentifier = "A357EE3C271F6038B0E6D917"
+            BuildableName = "FoldBar.app"
+            BlueprintName = "FoldBar"
+            ReferencedContainer = "container:FoldBar.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
       <CommandLineArguments>
@@ -87,10 +87,10 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "94724CFF16AED2510C414C26"
-            BuildableName = "MenuBarOverflow.app"
-            BlueprintName = "MenuBarOverflow"
-            ReferencedContainer = "container:MenuBarOverflow.xcodeproj">
+            BlueprintIdentifier = "A357EE3C271F6038B0E6D917"
+            BuildableName = "FoldBar.app"
+            BlueprintName = "FoldBar"
+            ReferencedContainer = "container:FoldBar.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
       <CommandLineArguments>

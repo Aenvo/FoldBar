@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct MenuBarOverflowApp: App {
+struct FoldBarApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
     var body: some Scene {

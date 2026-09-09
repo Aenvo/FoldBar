@@ -118,6 +118,42 @@ final class OverflowPanel {
     }
 }
 
+struct OverflowGridCell: Identifiable {
+    let item: CapturedItem
+    let span: Int
+    var id: CGWindowID { item.id }
+}
+
+enum OverflowGridLayout {
+    static let columnCount = 5
+
+    /// A normal icon is roughly square. Text meters keep their original aspect
+    /// ratio and receive two or three slots instead of being squeezed into one.
+    static func columnSpan(for frame: CGRect) -> Int {
+        let width = max(frame.width, frame.height)
+        return min(3, max(1, Int(ceil(width / 50))))
+    }
+
+    static func rows(for items: [CapturedItem]) -> [[OverflowGridCell]] {
+        var rows: [[OverflowGridCell]] = []
+        var row: [OverflowGridCell] = []
+        var occupied = 0
+
+        for item in items {
+            let span = columnSpan(for: item.window.frame)
+            if occupied + span > columnCount, !row.isEmpty {
+                rows.append(row)
+                row = []
+                occupied = 0
+            }
+            row.append(OverflowGridCell(item: item, span: span))
+            occupied += span
+        }
+        if !row.isEmpty { rows.append(row) }
+        return rows
+    }
+}
+
 private struct OverflowPanelView: View {
     let items: [CapturedItem]
     let onClick: (CapturedItem) -> Void
@@ -125,11 +161,15 @@ private struct OverflowPanelView: View {
     let onManage: () -> Void
 
     @State private var isPromoteTargeted = false
-    private let columns = Array(repeating: GridItem(.fixed(42), spacing: 8), count: 5)
+    private let baseCellWidth: CGFloat = 42
+    private let cellSpacing: CGFloat = 8
+
+    private var rows: [[OverflowGridCell]] {
+        OverflowGridLayout.rows(for: items)
+    }
 
     private var panelHeight: CGFloat {
-        let rows = max(1, Int(ceil(Double(items.count) / 5.0)))
-        return min(370, CGFloat(rows * 50 + 126))
+        min(370, CGFloat(max(1, rows.count) * 50 + 126))
     }
 
     var body: some View {
@@ -138,7 +178,7 @@ private struct OverflowPanelView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("菜单栏溢出")
                         .font(.headline)
-                    Text("Menu Bar Overflow")
+                    Text("FoldBar")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
@@ -159,31 +199,13 @@ private struct OverflowPanelView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
-                    LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
-                        ForEach(items) { item in
-                            Button {
-                                onClick(item)
-                            } label: {
-                                ZStack {
-                                    RoundedRectangle(cornerRadius: 9)
-                                        .fill(.quaternary.opacity(0.45))
-                                    Image(nsImage: item.image)
-                                        .resizable()
-                                        .scaledToFit()
-                                        .frame(maxWidth: 30, maxHeight: 24)
+                    VStack(alignment: .leading, spacing: cellSpacing) {
+                        ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                            HStack(spacing: cellSpacing) {
+                                ForEach(row) { entry in
+                                    iconCell(entry)
                                 }
-                                .frame(width: 42, height: 42)
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .help(item.window.displayName)
-                            .draggable(String(item.id)) {
-                                Image(nsImage: item.image)
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(width: 30, height: 24)
-                                    .padding(7)
-                                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 9))
+                                Spacer(minLength: 0)
                             }
                         }
                     }
@@ -232,5 +254,36 @@ private struct OverflowPanelView: View {
             onPromote(item)
             return true
         } isTargeted: { isPromoteTargeted = $0 }
+    }
+
+    private func iconCell(_ entry: OverflowGridCell) -> some View {
+        let item = entry.item
+        let width = baseCellWidth * CGFloat(entry.span) + cellSpacing * CGFloat(entry.span - 1)
+        return Button {
+            onClick(item)
+        } label: {
+            ZStack {
+                RoundedRectangle(cornerRadius: 9)
+                    .fill(.quaternary.opacity(0.45))
+                Image(nsImage: item.image)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+                    .frame(maxWidth: width - 12, maxHeight: 24)
+            }
+            .frame(width: width, height: 42)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(item.window.displayName)
+        .draggable(String(item.id)) {
+            Image(nsImage: item.image)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+                .frame(maxWidth: width - 12, maxHeight: 24)
+                .padding(7)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 9))
+        }
     }
 }

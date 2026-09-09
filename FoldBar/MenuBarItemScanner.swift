@@ -14,6 +14,35 @@ enum MenuBarItemScanner {
         hiddenItems(among: statusWindows())
     }
 
+    /// Finds this app's managed section while the separator is at its normal
+    /// width. Capturing at this point avoids the visible flash that would be
+    /// caused by expanding the separator after the user opens the panel.
+    static func itemsLeft(of separatorMinX: CGFloat) -> [MenuBarItemWindow] {
+        itemsLeft(of: separatorMinX, among: statusWindows())
+    }
+
+    static func itemsLeft(
+        of separatorMinX: CGFloat,
+        among windows: [MenuBarItemWindow]
+    ) -> [MenuBarItemWindow] {
+        var edge = separatorMinX
+        var result: [MenuBarItemWindow] = []
+        let candidates = windows
+            .filter {
+                $0.frame.maxX <= separatorMinX + 1
+                    && $0.frame.width < separatorMinWidth
+                    && $0.frame.height <= 40
+            }
+            .sorted { $0.frame.maxX > $1.frame.maxX }
+
+        for window in candidates {
+            guard edge - window.frame.maxX <= contiguityGap else { break }
+            result.append(window)
+            edge = window.frame.minX
+        }
+        return result.sorted { $0.frame.minX < $1.frame.minX }
+    }
+
     static func hiddenItems(among windows: [MenuBarItemWindow]) -> [MenuBarItemWindow] {
         guard let separator = windows
             .filter({ $0.frame.width >= separatorMinWidth })
@@ -32,13 +61,6 @@ enum MenuBarItemScanner {
             edge = window.frame.minX
         }
         return result.sorted { $0.frame.minX < $1.frame.minX }
-    }
-
-    static func refreshed(_ windows: [MenuBarItemWindow]) -> [MenuBarItemWindow] {
-        let wanted = Set(windows.map(\.id))
-        return statusWindows()
-            .filter { wanted.contains($0.id) }
-            .sorted { $0.frame.minX < $1.frame.minX }
     }
 
     static func frame(of id: CGWindowID) -> CGRect? {

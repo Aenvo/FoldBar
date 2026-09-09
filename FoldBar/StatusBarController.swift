@@ -6,8 +6,9 @@ final class StatusBarController {
     private static let collapsedLength: CGFloat = 10_000
     private static let initialStablePolls = 3
     private static let initialMaxPolls = 45
-    private static let toggleAutosaveName = "menuBarOverflow_toggle"
-    private static let separatorAutosaveName = "menuBarOverflow_separator"
+    private static let toggleAutosaveName = "foldbar_toggle"
+    private static let separatorAutosaveName = "foldbar_separator"
+    private static let combinedPermissionRequestKey = "didRequestCombinedPermissionsV1"
 
     private let toggleItem: NSStatusItem
     private let separatorItem: NSStatusItem
@@ -16,7 +17,10 @@ final class StatusBarController {
     private var initialCollapseTask: Task<Void, Never>?
     private var autoCollapseTask: Task<Void, Never>?
     private var autoCollapseMonitor: Any?
-    private var openingPanel = false
+    private var cacheCaptureTask: Task<Void, Never>?
+    private var cachedItems: [CapturedItem] = []
+    private var preparingCollapse = false
+    private var permissionFlowActive = false
     private(set) var isCollapsed = false
 
     init() {
@@ -55,11 +59,12 @@ final class StatusBarController {
             button.target = self
             button.action = #selector(toggleClicked)
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
-            button.toolTip = "MenuBarOverflow"
+            button.toolTip = "FoldBar"
         }
         separatorItem.button?.image = symbol("chevron.left.to.line")
         updateToggleIcon()
         scheduleInitialCollapse()
+        schedulePermissionOnboarding()
     }
 
     static func isSanePair(toggle: Double, separator: Double) -> Bool {
@@ -71,6 +76,8 @@ final class StatusBarController {
 
     func expandForQuit() {
         initialCollapseTask?.cancel()
+        cacheCaptureTask?.cancel()
+        preparingCollapse = false
         disarmAutoCollapse()
         panel.close()
         guard isCollapsed else { return }
@@ -112,11 +119,36 @@ final class StatusBarController {
     }
 
     private func collapse() {
-        guard !isCollapsed else { return }
+        guard !isCollapsed, !preparingCollapse else { return }
         initialCollapseTask?.cancel()
         initialCollapseTask = nil
         disarmAutoCollapse()
         panel.close()
+
+        guard IconCapturer.hasPermission(),
+              let separatorFrame = separatorItem.button?.window?.frame else {
+            completeCollapse()
+            return
+        }
+
+        // Capture while the real items are already visible. The panel can then
+        // open from memory with no flash-expand and no ScreenCaptureKit wait.
+        preparingCollapse = true
+        let windows = MenuBarItemScanner.itemsLeft(of: separatorFrame.minX)
+        cacheCaptureTask?.cancel()
+        cacheCaptureTask = Task { @MainActor [weak self] in
+            let captured = await IconCapturer.capture(windows)
+            guard let self, !Task.isCancelled, !self.isCollapsed else { return }
+            if !captured.isEmpty || windows.isEmpty {
+                self.cachedItems = captured
+            }
+            self.completeCollapse()
+        }
+    }
+
+    private func completeCollapse() {
+        preparingCollapse = false
+        cacheCaptureTask = nil
         _ = MenuBarArrangement.captureAndSave()
         separatorItem.length = Self.collapsedLength
         isCollapsed = true
@@ -125,6 +157,9 @@ final class StatusBarController {
 
     private func expand() {
         guard isCollapsed else { return }
+        cacheCaptureTask?.cancel()
+        cacheCaptureTask = nil
+        preparingCollapse = false
         initialCollapseTask?.cancel()
         initialCollapseTask = nil
         disarmAutoCollapse()
@@ -155,44 +190,27 @@ final class StatusBarController {
     // MARK: - Overflow panel
 
     private func openPanel() {
-        guard !openingPanel else { return }
         guard IconCapturer.hasPermission() else {
-            showPermissionAlert(
-                title: "需要屏幕录制权限",
-                message: "此权限只用于截取菜单栏中各个小图标并显示在浮动面板里。macOS 授权后需要重新打开 MenuBarOverflow。",
-                settingsAnchor: "Privacy_ScreenCapture",
-                beforeOpeningSettings: IconCapturer.requestPermission
-            )
+            presentPermissionCenter()
             return
         }
 
-        openingPanel = true
         let hidden = MenuBarItemScanner.hiddenItems()
+        let hiddenIDs = Set(hidden.map(\.id))
+        let items = cachedItems.filter { hiddenIDs.contains($0.id) }
         let anchor = toggleItem.button?.window?.frame ?? .zero
 
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            defer { self.openingPanel = false }
-
-            // Off-screen windows cannot be captured by either supported API.
-            // Briefly restore the real bar, refresh the same window IDs, capture,
-            // then collapse again without changing the logical state.
-            separatorItem.length = NSStatusItem.variableLength
-            try? await Task.sleep(for: .milliseconds(320))
-            let refreshed = MenuBarItemScanner.refreshed(hidden)
-            let captured = await IconCapturer.capture(refreshed)
-            if isCollapsed { separatorItem.length = Self.collapsedLength }
-
-            guard isCollapsed else { return }
-            let latestAnchor = toggleItem.button?.window?.frame ?? anchor
-            panel.show(
-                items: captured,
-                below: latestAnchor,
-                onClick: { [weak self] item in self?.activate(item) },
-                onPromote: { [weak self] item in self?.promoteToMenuBar(item) },
-                onManage: { [weak self] in self?.beginManualArrangement() }
-            )
+        guard !items.isEmpty || hidden.isEmpty else {
+            showRestartForCacheAlert()
+            return
         }
+        panel.show(
+            items: items,
+            below: anchor,
+            onClick: { [weak self] item in self?.activate(item) },
+            onPromote: { [weak self] item in self?.promoteToMenuBar(item) },
+            onManage: { [weak self] in self?.beginManualArrangement() }
+        )
     }
 
     private func activate(_ item: CapturedItem) {
@@ -268,7 +286,7 @@ final class StatusBarController {
         expand()
         showAlert(
             title: "整理菜单栏图标",
-            message: "按住 ⌘，把要收纳的图标拖到分隔符左侧；拖到右侧则保持可见。完成后点击上方的 MenuBarOverflow 图标即可重新收起。"
+            message: "按住 ⌘，把要收纳的图标拖到分隔符左侧；拖到右侧则保持可见。完成后点击上方的 FoldBar 图标即可重新收起。"
         )
     }
 
@@ -318,12 +336,7 @@ final class StatusBarController {
 
     private func requireAccessibility() -> Bool {
         guard EventForwarder.isTrusted() else {
-            showPermissionAlert(
-                title: "需要辅助功能权限",
-                message: "此权限用于把你的点击或拖动转发给真实菜单栏图标。",
-                settingsAnchor: "Privacy_Accessibility",
-                beforeOpeningSettings: EventForwarder.promptForAccessibility
-            )
+            presentPermissionCenter()
             return false
         }
         return true
@@ -372,6 +385,14 @@ final class StatusBarController {
         let arrange = NSMenuItem(title: "整理图标…", action: #selector(arrangeFromMenu), keyEquivalent: "")
         arrange.target = self
         menu.addItem(arrange)
+
+        let permissions = NSMenuItem(
+            title: permissionMenuTitle,
+            action: #selector(permissionFromMenu),
+            keyEquivalent: ""
+        )
+        permissions.target = self
+        menu.addItem(permissions)
         menu.addItem(.separator())
 
         let login = NSMenuItem(title: "登录时启动", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
@@ -379,7 +400,7 @@ final class StatusBarController {
         login.state = SMAppService.mainApp.status == .enabled ? .on : .off
         menu.addItem(login)
 
-        let about = NSMenuItem(title: "关于 MenuBarOverflow", action: #selector(openAbout), keyEquivalent: "")
+        let about = NSMenuItem(title: "关于 FoldBar", action: #selector(openAbout), keyEquivalent: "")
         about.target = self
         menu.addItem(about)
         menu.addItem(.separator())
@@ -392,6 +413,7 @@ final class StatusBarController {
 
     @objc private func openFromMenu() { openPanel() }
     @objc private func arrangeFromMenu() { beginManualArrangement() }
+    @objc private func permissionFromMenu() { presentPermissionCenter() }
 
     @objc private func toggleLaunchAtLogin() {
         let service = SMAppService.mainApp
@@ -419,17 +441,99 @@ final class StatusBarController {
         NSApp.orderFrontStandardAboutPanel(options: [.credits: credits])
     }
 
-    private func showPermissionAlert(
-        title: String,
-        message: String,
-        settingsAnchor: String,
-        beforeOpeningSettings: () -> Void
-    ) {
-        let response = runAlert(title: title, message: message, buttons: ["打开系统设置", "取消"])
+    private var permissionMenuTitle: String {
+        if IconCapturer.hasPermission(), EventForwarder.isTrusted() {
+            return "权限：已完整授权"
+        }
+        return "权限设置…"
+    }
+
+    private func schedulePermissionOnboarding() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: Self.combinedPermissionRequestKey),
+              !IconCapturer.hasPermission() || !EventForwarder.isTrusted() else { return }
+
+        Task { @MainActor [weak self] in
+            guard (try? await Task.sleep(for: .milliseconds(900))) != nil else { return }
+            self?.presentPermissionCenter()
+        }
+    }
+
+    /// macOS owns the two privacy prompts and cannot combine them into one
+    /// system sheet. FoldBar uses one explanatory action to request both once,
+    /// then stops re-triggering the OS prompts on every icon interaction.
+    private func presentPermissionCenter() {
+        guard !permissionFlowActive else { return }
+        permissionFlowActive = true
+        defer { permissionFlowActive = false }
+
+        let screenGranted = IconCapturer.hasPermission()
+        let accessibilityGranted = EventForwarder.isTrusted()
+        if screenGranted, accessibilityGranted {
+            showAlert(
+                title: "权限已完整授权",
+                message: "屏幕录制用于显示图标；辅助功能只在你点击或拖动代理图标时使用。"
+            )
+            return
+        }
+
+        let defaults = UserDefaults.standard
+        if !defaults.bool(forKey: Self.combinedPermissionRequestKey) {
+            let response = runAlert(
+                title: "FoldBar 需要两项权限",
+                message: "屏幕录制：读取菜单栏小图标。\n辅助功能：转发你主动执行的点击和拖动。\n\n点击一次后，macOS 会分别显示两个系统级确认；FoldBar 不会在后续操作中反复请求。",
+                buttons: ["一次性请求两项权限", "稍后"]
+            )
+            guard response == .alertFirstButtonReturn else { return }
+            defaults.set(true, forKey: Self.combinedPermissionRequestKey)
+            if !screenGranted { IconCapturer.requestPermission() }
+            if !accessibilityGranted { EventForwarder.promptForAccessibility() }
+            return
+        }
+
+        let screenStatus = screenGranted ? "已授权" : "未授权"
+        let accessibilityStatus = accessibilityGranted ? "已授权" : "未授权"
+        let response = runAlert(
+            title: "FoldBar 权限设置",
+            message: "屏幕录制：\(screenStatus)\n辅助功能：\(accessibilityStatus)\n\n系统提示已经请求过，不会再次自动弹出。请在系统设置中打开缺少的权限。",
+            buttons: ["打开系统设置", "取消"]
+        )
         guard response == .alertFirstButtonReturn else { return }
-        beforeOpeningSettings()
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(settingsAnchor)") {
-            NSWorkspace.shared.open(url)
+        openPrivacySettings(anchor: screenGranted ? "Privacy_Accessibility" : "Privacy_ScreenCapture")
+    }
+
+    private func openPrivacySettings(anchor: String) {
+        guard let url = URL(
+            string: "x-apple.systempreferences:com.apple.preference.security?\(anchor)"
+        ) else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    private func showRestartForCacheAlert() {
+        let response = runAlert(
+            title: "需要重新启动 FoldBar",
+            message: "屏幕录制权限已经可用，但这一进程启动时还没有建立图标缓存。重新启动后会在折叠前预先采集，面板即可直接出现。",
+            buttons: ["重新启动", "稍后"]
+        )
+        guard response == .alertFirstButtonReturn else { return }
+        relaunch()
+    }
+
+    private func relaunch() {
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.createsNewApplicationInstance = true
+        configuration.activates = false
+        NSWorkspace.shared.openApplication(
+            at: Bundle.main.bundleURL,
+            configuration: configuration
+        ) { _, error in
+            Task { @MainActor [weak self] in
+                if let error {
+                    self?.showAlert(title: "无法重新启动 FoldBar", message: error.localizedDescription)
+                } else {
+                    NSApp.terminate(nil)
+                }
+            }
         }
     }
 

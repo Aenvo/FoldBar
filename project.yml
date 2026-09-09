@@ -1,6 +1,6 @@
-name: MenuBarOverflow
+name: FoldBar
 options:
-  bundleIdPrefix: local.menubaroverflow
+  bundleIdPrefix: local.foldbar
   deploymentTarget:
     macOS: "14.0"
   xcodeVersion: "26.0"
@@ -11,37 +11,39 @@ settings:
   base:
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
-    MARKETING_VERSION: "0.1.0"
-    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: "42MUMXKY79"
+    CODE_SIGN_STYLE: Automatic
+    MARKETING_VERSION: "0.2.0"
+    CURRENT_PROJECT_VERSION: "2"
 
 targets:
-  MenuBarOverflow:
+  FoldBar:
     type: application
     platform: macOS
     scheme:
       testTargets:
-        - MenuBarOverflowTests
+        - FoldBarTests
     sources:
-      - path: MenuBarOverflow
+      - path: FoldBar
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: local.menubaroverflow.app
+        PRODUCT_BUNDLE_IDENTIFIER: local.foldbar.app
         GENERATE_INFOPLIST_FILE: true
         ENABLE_APP_SANDBOX: "NO"
         ENABLE_HARDENED_RUNTIME: "YES"
         INFOPLIST_KEY_LSUIElement: true
         INFOPLIST_KEY_LSApplicationCategoryType: "public.app-category.utilities"
-        INFOPLIST_KEY_NSHumanReadableCopyright: "MenuBarOverflow contributors. MenubarHide portions used under MIT."
+        INFOPLIST_KEY_NSHumanReadableCopyright: "FoldBar contributors. MenubarHide portions used under MIT."
 
-  MenuBarOverflowTests:
+  FoldBarTests:
     type: bundle.unit-test
     platform: macOS
     sources:
-      - path: MenuBarOverflowTests
+      - path: FoldBarTests
     dependencies:
-      - target: MenuBarOverflow
+      - target: FoldBar
     settings:
       base:
         GENERATE_INFOPLIST_FILE: true
-        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/MenuBarOverflow.app/Contents/MacOS/MenuBarOverflow"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/FoldBar.app/Contents/MacOS/FoldBar"
         BUNDLE_LOADER: "$(TEST_HOST)"
