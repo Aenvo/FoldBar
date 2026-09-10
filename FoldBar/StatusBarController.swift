@@ -209,6 +209,7 @@ final class StatusBarController {
             below: anchor,
             onClick: { [weak self] item in self?.activate(item) },
             onPromote: { [weak self] item in self?.promoteToMenuBar(item) },
+            onExpand: { [weak self] in self?.expand() },
             onManage: { [weak self] in self?.beginManualArrangement() }
         )
     }
@@ -271,11 +272,17 @@ final class StatusBarController {
                 return
             }
 
-            EventForwarder.commandDrag(
+            let posted = await EventForwarder.commandDrag(
                 from: CGPoint(x: frame.midX, y: frame.midY),
                 to: CGPoint(x: targetX, y: frame.midY)
             )
-            try? await Task.sleep(for: .milliseconds(650))
+            guard posted, await self.waitForPromotion(of: item.id) else {
+                showAlert(
+                    title: "图标没有移动成功",
+                    message: "macOS 没有接受这次自动拖动。菜单栏已保持展开，请按住 ⌘ 将这个真实图标拖到 FoldBar 图标右侧。"
+                )
+                return
+            }
             // collapse() snapshots the newly ordered bar before parking the
             // remaining overflow items again.
             collapse()
@@ -307,6 +314,10 @@ final class StatusBarController {
         frame.maxX <= toggleMinX
     }
 
+    static func isOnVisibleSide(_ frame: CGRect, separatorFrame: CGRect) -> Bool {
+        frame.minX >= separatorFrame.maxX - 1
+    }
+
     static func promotionTargetX(
         itemFrame: CGRect,
         toggleFrame: CGRect,
@@ -315,7 +326,10 @@ final class StatusBarController {
         guard let display = displays.first(where: { $0.contains(CGPoint(x: itemFrame.midX, y: itemFrame.midY)) }) else {
             return nil
         }
-        let proposed = toggleFrame.maxX + max(6, itemFrame.width / 2)
+        // Cross the midpoint of the neighboring status item instead of ending
+        // directly on its button center. The latter can be handled as a click
+        // target rather than a stable insertion boundary on macOS 26.
+        let proposed = toggleFrame.maxX + max(12, itemFrame.width)
         let lower = display.minX + itemFrame.width / 2
         let upper = display.maxX - itemFrame.width / 2
         guard lower <= upper else { return nil }
@@ -332,6 +346,19 @@ final class StatusBarController {
 
     private static func isInMenuBarStrip(_ frame: CGRect) -> Bool {
         isInStrip(frame, displays: activeDisplayBounds())
+    }
+
+    private func waitForPromotion(of id: CGWindowID) async -> Bool {
+        for _ in 0..<12 {
+            guard (try? await Task.sleep(for: .milliseconds(120))) != nil else { return false }
+            guard let frame = MenuBarItemScanner.frame(of: id),
+                  let separatorFrame = separatorItem.button?.window?.frame,
+                  Self.isInMenuBarStrip(frame) else { continue }
+            if Self.isOnVisibleSide(frame, separatorFrame: separatorFrame) {
+                return true
+            }
+        }
+        return false
     }
 
     private func requireAccessibility() -> Bool {

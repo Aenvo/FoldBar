@@ -21,6 +21,7 @@ final class OverflowPanel {
         below anchorFrame: NSRect,
         onClick: @escaping @MainActor (CapturedItem) -> Void,
         onPromote: @escaping @MainActor (CapturedItem) -> Void,
+        onExpand: @escaping @MainActor () -> Void,
         onManage: @escaping @MainActor () -> Void
     ) {
         close()
@@ -38,6 +39,10 @@ final class OverflowPanel {
                     self?.close()
                     onPromote(item)
                 }
+            },
+            onExpand: { [weak self] in
+                self?.close()
+                onExpand()
             },
             onManage: { [weak self] in
                 self?.close()
@@ -158,6 +163,7 @@ private struct OverflowPanelView: View {
     let items: [CapturedItem]
     let onClick: (CapturedItem) -> Void
     let onPromote: (CapturedItem) -> Void
+    let onExpand: () -> Void
     let onManage: () -> Void
 
     @State private var isPromoteTargeted = false
@@ -183,6 +189,11 @@ private struct OverflowPanelView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
+                Button(action: onExpand) {
+                    Label("展开", systemImage: "chevron.left.to.line")
+                }
+                .buttonStyle(.borderless)
+                .help("展开左侧真实菜单栏图标，并保持展开")
                 Button("整理…", action: onManage)
                     .buttonStyle(.borderless)
                     .help("展开真实菜单栏，然后按住 ⌘ 拖动图标")

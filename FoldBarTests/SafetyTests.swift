@@ -36,7 +36,20 @@ struct SafetyTests {
             toggleFrame: trigger,
             displays: [Self.main]
         )
-        #expect(x == 1436)
+        #expect(x == 1448)
+    }
+
+    @Test("Promotion succeeds only after the entire item crosses the separator")
+    func promotionVerification() {
+        let separator = CGRect(x: 900, y: 0, width: 18, height: 24)
+        #expect(StatusBarController.isOnVisibleSide(
+            CGRect(x: 918, y: 0, width: 38, height: 24),
+            separatorFrame: separator
+        ))
+        #expect(!StatusBarController.isOnVisibleSide(
+            CGRect(x: 880, y: 0, width: 38, height: 24),
+            separatorFrame: separator
+        ))
     }
 }
 
