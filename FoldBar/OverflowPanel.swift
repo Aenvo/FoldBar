@@ -170,6 +170,7 @@ private struct OverflowPanelView: View {
     @AppStorage(PanelAppearance.defaultsKey)
     private var storedAppearance = PanelAppearance.currentMaterial.rawValue
     private let cellSize: CGFloat = 46
+    private let iconMaxHeight: CGFloat = 26
     private let cellSpacing: CGFloat = 8
     private let panelPadding: CGFloat = 16
     private let panelChromeHeight: CGFloat = 102
@@ -379,7 +380,7 @@ private struct OverflowPanelView: View {
                 .resizable()
                 .interpolation(.high)
                 .scaledToFit()
-                .frame(maxWidth: width - 12, maxHeight: 24)
+                .frame(maxWidth: width - 12, maxHeight: iconMaxHeight)
         }
         .frame(width: width, height: cellSize)
     }
