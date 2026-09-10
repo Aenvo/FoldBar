@@ -184,9 +184,45 @@ private struct OverflowPanelView: View {
         min(346, CGFloat(max(1, rows.count) * 50 + 102))
     }
 
+    private var renderedAppearance: PanelAppearance {
+        if appearance == .liquidGlass {
+            if #available(macOS 26.0, *) {
+                return .liquidGlass
+            }
+            return .currentMaterial
+        }
+        return appearance
+    }
+
+    private var usesDarkForeground: Bool {
+        renderedAppearance == .dark || renderedAppearance == .liquidGlass
+    }
+
+    private var iconCellFill: Color {
+        switch renderedAppearance {
+        case .currentMaterial:
+            Color.black.opacity(0.16)
+        case .dark:
+            Color.white.opacity(0.07)
+        case .liquidGlass:
+            Color.black.opacity(0.22)
+        }
+    }
+
+    private var passiveDropZoneFill: Color {
+        switch renderedAppearance {
+        case .currentMaterial:
+            Color.black.opacity(0.07)
+        case .dark:
+            Color.white.opacity(0.04)
+        case .liquidGlass:
+            Color.black.opacity(0.16)
+        }
+    }
+
     var body: some View {
         styledPanel
-            .preferredColorScheme(appearance == .dark ? .dark : nil)
+            .preferredColorScheme(usesDarkForeground ? .dark : nil)
     }
 
     private var panelContent: some View {
@@ -250,14 +286,14 @@ private struct OverflowPanelView: View {
                 .background {
                     shape
                         .fill(.ultraThinMaterial)
-                        .overlay { shape.fill(Color.black.opacity(0.48)) }
+                        .overlay { shape.fill(Color.black.opacity(0.34)) }
                 }
-                .overlay { panelBorder(shape, opacity: 0.22) }
+                .overlay { panelBorder(shape, color: .black, opacity: 0.18) }
         case .liquidGlass:
             if #available(macOS 26.0, *) {
                 panelContent
-                    .glassEffect(.clear, in: shape)
-                    .overlay { panelBorder(shape, opacity: 0.28) }
+                    .glassEffect(.clear.tint(Color.black.opacity(0.20)), in: shape)
+                    .overlay { panelBorder(shape, opacity: 0.10) }
             } else {
                 panelContent
                     .background(.regularMaterial, in: shape)
@@ -266,9 +302,13 @@ private struct OverflowPanelView: View {
         }
     }
 
-    private func panelBorder<S: InsettableShape>(_ shape: S, opacity: Double) -> some View {
+    private func panelBorder<S: InsettableShape>(
+        _ shape: S,
+        color: Color = .white,
+        opacity: Double
+    ) -> some View {
         shape
-            .strokeBorder(.white.opacity(opacity), lineWidth: 1)
+            .strokeBorder(color.opacity(opacity), lineWidth: 1)
             .allowsHitTesting(false)
     }
 
@@ -281,10 +321,7 @@ private struct OverflowPanelView: View {
         .foregroundStyle(isPromoteTargeted ? Color.accentColor : .secondary)
         .frame(maxWidth: .infinity)
         .padding(.vertical, 8)
-        .background(
-            isPromoteTargeted ? Color.accentColor.opacity(0.16) : Color.primary.opacity(0.045),
-            in: RoundedRectangle(cornerRadius: 8)
-        )
+        .background { dropZoneBackground }
         .overlay {
             RoundedRectangle(cornerRadius: 8)
                 .strokeBorder(
@@ -309,8 +346,15 @@ private struct OverflowPanelView: View {
             onClick(item)
         } label: {
             ZStack {
-                RoundedRectangle(cornerRadius: 9)
-                    .fill(.quaternary.opacity(0.45))
+                let shape = RoundedRectangle(cornerRadius: 9)
+                if renderedAppearance == .liquidGlass {
+                    shape
+                        .fill(.ultraThinMaterial)
+                        .opacity(0.52)
+                        .overlay { shape.fill(Color.black.opacity(0.12)) }
+                } else {
+                    shape.fill(iconCellFill)
+                }
                 Image(nsImage: item.image)
                     .resizable()
                     .interpolation(.high)
@@ -330,6 +374,26 @@ private struct OverflowPanelView: View {
                 .frame(maxWidth: width - 12, maxHeight: 24)
                 .padding(7)
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 9))
+        }
+    }
+
+    @ViewBuilder
+    private var dropZoneBackground: some View {
+        let shape = RoundedRectangle(cornerRadius: 8)
+        if renderedAppearance == .liquidGlass {
+            shape
+                .fill(.ultraThinMaterial)
+                .overlay {
+                    shape.fill(
+                        isPromoteTargeted
+                            ? Color.accentColor.opacity(0.16)
+                            : Color.black.opacity(0.10)
+                    )
+                }
+        } else {
+            shape.fill(
+                isPromoteTargeted ? Color.accentColor.opacity(0.16) : passiveDropZoneFill
+            )
         }
     }
 }

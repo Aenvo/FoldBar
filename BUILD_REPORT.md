@@ -22,6 +22,9 @@ The overflow panel also exposes a direct Expand action that reuses the existing
 separator expansion path.
 Appearance settings preserve the original material fallback, add a dark style,
 and use the public high-transparency Liquid Glass effect on macOS 26 or newer.
+The Liquid Glass style pins readable dark-scheme foregrounds over a subtle tint,
+with lightly blurred cells and drop target; dark and compatibility styles use
+separately tuned panel and cell contrast.
 Interactive cross-app promotion still requires confirmation on the real menu
 bar; a rejected synthetic drag now leaves the bar expanded and reports the
 manual fallback instead of appearing to succeed.

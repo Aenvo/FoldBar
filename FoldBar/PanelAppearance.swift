@@ -22,9 +22,9 @@ enum PanelAppearance: String, CaseIterable, Identifiable {
         case .currentMaterial:
             "保留现在的系统毛玻璃外观，并兼容 macOS 14 及更高版本。"
         case .dark:
-            "使用更深的半透明背景，在明亮或复杂壁纸上保持清晰。"
+            "使用更通透的深色模糊背景，在保留壁纸质感的同时维持清晰。"
         case .liquidGlass:
-            "在 macOS 26 及更高版本使用原生高透明玻璃；较低版本自动回退到当前材质。"
+            "在 macOS 26 及更高版本使用原生高透明玻璃，图标区域带有轻微模糊；较低版本自动回退到当前材质。"
         }
     }
 
