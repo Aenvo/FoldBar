@@ -13,6 +13,7 @@ final class StatusBarController {
     private let toggleItem: NSStatusItem
     private let separatorItem: NSStatusItem
     private let panel = OverflowPanel()
+    private let settingsPanel = AppearanceSettingsPanel()
 
     private var initialCollapseTask: Task<Void, Never>?
     private var autoCollapseTask: Task<Void, Never>?
@@ -210,7 +211,7 @@ final class StatusBarController {
             onClick: { [weak self] item in self?.activate(item) },
             onPromote: { [weak self] item in self?.promoteToMenuBar(item) },
             onExpand: { [weak self] in self?.expand() },
-            onManage: { [weak self] in self?.beginManualArrangement() }
+            onSettings: { [weak self] in self?.settingsPanel.show() }
         )
     }
 
@@ -234,7 +235,7 @@ final class StatusBarController {
             guard let target else {
                 showAlert(
                     title: "图标暂时无法点击",
-                    message: "macOS 没有把这个真实图标放回可点击区域。菜单栏已保持展开，你可以直接点击或重新整理它。"
+                    message: "macOS 没有把这个真实图标放回可点击区域。菜单栏已保持展开，你可以直接操作它。"
                 )
                 armAutoCollapse()
                 return
@@ -267,7 +268,7 @@ final class StatusBarController {
                   ) else {
                 showAlert(
                     title: "无法移动这个图标",
-                    message: "真实图标没有出现在可拖动的菜单栏区域。可以点“整理”后手动按住 ⌘ 拖动。"
+                    message: "真实图标没有出现在可拖动的菜单栏区域。菜单栏已保持展开，请手动按住 ⌘ 拖动。"
                 )
                 return
             }
@@ -287,14 +288,6 @@ final class StatusBarController {
             // remaining overflow items again.
             collapse()
         }
-    }
-
-    private func beginManualArrangement() {
-        expand()
-        showAlert(
-            title: "整理菜单栏图标",
-            message: "按住 ⌘，把要收纳的图标拖到分隔符左侧；拖到右侧则保持可见。完成后点击上方的 FoldBar 图标即可重新收起。"
-        )
     }
 
     // MARK: - Event safety
@@ -409,9 +402,9 @@ final class StatusBarController {
         open.isEnabled = isCollapsed
         menu.addItem(open)
 
-        let arrange = NSMenuItem(title: "整理图标", action: #selector(arrangeFromMenu), keyEquivalent: "")
-        arrange.target = self
-        menu.addItem(arrange)
+        let settings = NSMenuItem(title: "设置", action: #selector(settingsFromMenu), keyEquivalent: "")
+        settings.target = self
+        menu.addItem(settings)
 
         let permissions = NSMenuItem(
             title: permissionMenuTitle,
@@ -439,7 +432,7 @@ final class StatusBarController {
     }
 
     @objc private func openFromMenu() { openPanel() }
-    @objc private func arrangeFromMenu() { beginManualArrangement() }
+    @objc private func settingsFromMenu() { settingsPanel.show() }
     @objc private func permissionFromMenu() { presentPermissionCenter() }
 
     @objc private func toggleLaunchAtLogin() {

@@ -22,7 +22,7 @@ final class OverflowPanel {
         onClick: @escaping @MainActor (CapturedItem) -> Void,
         onPromote: @escaping @MainActor (CapturedItem) -> Void,
         onExpand: @escaping @MainActor () -> Void,
-        onManage: @escaping @MainActor () -> Void
+        onSettings: @escaping @MainActor () -> Void
     ) {
         close()
 
@@ -44,9 +44,9 @@ final class OverflowPanel {
                 self?.close()
                 onExpand()
             },
-            onManage: { [weak self] in
+            onSettings: { [weak self] in
                 self?.close()
-                onManage()
+                onSettings()
             }
         )
         let hosting = FirstMouseHostingView(rootView: content)
@@ -164,21 +164,32 @@ private struct OverflowPanelView: View {
     let onClick: (CapturedItem) -> Void
     let onPromote: (CapturedItem) -> Void
     let onExpand: () -> Void
-    let onManage: () -> Void
+    let onSettings: () -> Void
 
     @State private var isPromoteTargeted = false
+    @AppStorage(PanelAppearance.defaultsKey)
+    private var storedAppearance = PanelAppearance.currentMaterial.rawValue
     private let baseCellWidth: CGFloat = 42
     private let cellSpacing: CGFloat = 8
+
+    private var appearance: PanelAppearance {
+        PanelAppearance.decode(storedAppearance)
+    }
 
     private var rows: [[OverflowGridCell]] {
         OverflowGridLayout.rows(for: items)
     }
 
     private var panelHeight: CGFloat {
-        min(370, CGFloat(max(1, rows.count) * 50 + 126))
+        min(346, CGFloat(max(1, rows.count) * 50 + 102))
     }
 
     var body: some View {
+        styledPanel
+            .preferredColorScheme(appearance == .dark ? .dark : nil)
+    }
+
+    private var panelContent: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
@@ -192,9 +203,9 @@ private struct OverflowPanelView: View {
                 Button("展开", action: onExpand)
                 .buttonStyle(.borderless)
                 .help("展开左侧真实菜单栏图标，并保持展开")
-                Button("整理", action: onManage)
+                Button("设置", action: onSettings)
                     .buttonStyle(.borderless)
-                    .help("展开真实菜单栏，然后按住 ⌘ 拖动图标")
+                    .help("选择悬浮面板外观")
             }
 
             promoteDropZone
@@ -203,7 +214,7 @@ private struct OverflowPanelView: View {
                 ContentUnavailableView(
                     "没有收纳的图标",
                     systemImage: "square.grid.3x3",
-                    description: Text("点“整理”，按住 ⌘ 将图标拖到分隔符左侧。")
+                    description: Text("点“展开”，按住 ⌘ 将图标拖到分隔符左侧。")
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -221,18 +232,44 @@ private struct OverflowPanelView: View {
                 }
             }
 
-            Text("点击打开图标；拖到上方可放回菜单栏")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .center)
         }
         .padding(12)
         .frame(width: 286, height: panelHeight)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(.white.opacity(0.16))
+    }
+
+    @ViewBuilder
+    private var styledPanel: some View {
+        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
+        switch appearance {
+        case .currentMaterial:
+            panelContent
+                .background(.regularMaterial, in: shape)
+                .overlay { panelBorder(shape, opacity: 0.16) }
+        case .dark:
+            panelContent
+                .background {
+                    shape
+                        .fill(.ultraThinMaterial)
+                        .overlay { shape.fill(Color.black.opacity(0.48)) }
+                }
+                .overlay { panelBorder(shape, opacity: 0.22) }
+        case .liquidGlass:
+            if #available(macOS 26.0, *) {
+                panelContent
+                    .glassEffect(.clear, in: shape)
+                    .overlay { panelBorder(shape, opacity: 0.28) }
+            } else {
+                panelContent
+                    .background(.regularMaterial, in: shape)
+                    .overlay { panelBorder(shape, opacity: 0.16) }
+            }
         }
+    }
+
+    private func panelBorder<S: InsettableShape>(_ shape: S, opacity: Double) -> some View {
+        shape
+            .strokeBorder(.white.opacity(opacity), lineWidth: 1)
+            .allowsHitTesting(false)
     }
 
     private var promoteDropZone: some View {

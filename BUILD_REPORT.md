@@ -5,7 +5,7 @@ Verified locally on 2026-09-10 with Xcode 26.6 (17F113), Swift 6.3.3, and the ma
 ## Results
 
 - Debug app-hosted test build: passed.
-- Swift Testing: 15 tests passed.
+- Swift Testing: 16 tests passed.
 - Release build: passed with no source compiler warnings.
 - Release binary: universal `arm64` + `x86_64`.
 - Deployment target: macOS 14.0.
@@ -19,7 +19,9 @@ The `fix/promotion-drag` candidate additionally uses paced, non-coalesced
 Command-drag events and verifies that a promoted item crossed the separator
 before collapsing again. Its build and focused geometry/state tests pass.
 The overflow panel also exposes a direct Expand action that reuses the existing
-separator expansion path without entering the instructional arrange flow.
+separator expansion path.
+Appearance settings preserve the original material fallback, add a dark style,
+and use the public high-transparency Liquid Glass effect on macOS 26 or newer.
 Interactive cross-app promotion still requires confirmation on the real menu
 bar; a rejected synthetic drag now leaves the bar expanded and reports the
 manual fallback instead of appearing to succeed.

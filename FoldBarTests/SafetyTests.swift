@@ -53,6 +53,16 @@ struct SafetyTests {
     }
 }
 
+@Suite("Panel appearance")
+struct PanelAppearanceTests {
+    @Test("Unknown saved appearances fall back to the compatible material")
+    func unknownAppearanceFallback() {
+        #expect(PanelAppearance.decode(nil) == .currentMaterial)
+        #expect(PanelAppearance.decode("future-style") == .currentMaterial)
+        #expect(PanelAppearance.decode(PanelAppearance.dark.rawValue) == .dark)
+    }
+}
+
 @Suite("Arrangement backup")
 struct ArrangementTests {
     @Test("Fresh valid positions win while missing values retain the backup")

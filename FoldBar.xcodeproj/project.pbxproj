@@ -8,6 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		09FE8205C6F7D6FBA0B5A35F /* EventForwarder.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE9EE71362C03109F2B75205 /* EventForwarder.swift */; };
+		0EF6BAB05385AFEA3ED7DB7F /* PanelAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46840FF2492E027B55B8E301 /* PanelAppearance.swift */; };
+		559949813EBA8F613549B8CE /* AppearanceSettingsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A222620E7875F71AA42C587 /* AppearanceSettingsPanel.swift */; };
 		76652A3466F9F4C3A767115A /* IconCapturer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF704A9F6E40EC2F93ACBCD5 /* IconCapturer.swift */; };
 		799DB327F6CE948A86E66218 /* MenuBarArrangement.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEFD743830B0B3A49D7B8F00 /* MenuBarArrangement.swift */; };
 		7F3C5D9F80444A51F5688B6A /* OverflowPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D754856CB766382F2A732E7 /* OverflowPanel.swift */; };
@@ -31,10 +33,12 @@
 
 /* Begin PBXFileReference section */
 		06443CFD70DBFB74187DB17A /* SafetyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafetyTests.swift; sourceTree = "<group>"; };
+		46840FF2492E027B55B8E301 /* PanelAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelAppearance.swift; sourceTree = "<group>"; };
 		4F7E1047B214A889A6F7A075 /* FoldBarApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoldBarApp.swift; sourceTree = "<group>"; };
 		57F1F6CC7E3187F59CD31EC4 /* FoldBar.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FoldBar.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		9033D86C7F9B7C24908A639D /* MenuBarModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarModels.swift; sourceTree = "<group>"; };
 		92EB1088F5530CCEAC5B1B5B /* StatusBarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusBarController.swift; sourceTree = "<group>"; };
+		9A222620E7875F71AA42C587 /* AppearanceSettingsPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceSettingsPanel.swift; sourceTree = "<group>"; };
 		9D754856CB766382F2A732E7 /* OverflowPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverflowPanel.swift; sourceTree = "<group>"; };
 		A21DBA7915B67863E41EA6CB /* FoldBarTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FoldBarTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B3783DBDBF4A87DBF6D5059D /* ScannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScannerTests.swift; sourceTree = "<group>"; };
@@ -57,6 +61,7 @@
 		1ED8C3C14EFE141B3D4BE1CB /* FoldBar */ = {
 			isa = PBXGroup;
 			children = (
+				9A222620E7875F71AA42C587 /* AppearanceSettingsPanel.swift */,
 				FE9EE71362C03109F2B75205 /* EventForwarder.swift */,
 				4F7E1047B214A889A6F7A075 /* FoldBarApp.swift */,
 				FF704A9F6E40EC2F93ACBCD5 /* IconCapturer.swift */,
@@ -64,6 +69,7 @@
 				EEFCEA7D523F220F8618C67A /* MenuBarItemScanner.swift */,
 				9033D86C7F9B7C24908A639D /* MenuBarModels.swift */,
 				9D754856CB766382F2A732E7 /* OverflowPanel.swift */,
+				46840FF2492E027B55B8E301 /* PanelAppearance.swift */,
 				92EB1088F5530CCEAC5B1B5B /* StatusBarController.swift */,
 			);
 			path = FoldBar;
@@ -178,6 +184,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				559949813EBA8F613549B8CE /* AppearanceSettingsPanel.swift in Sources */,
 				09FE8205C6F7D6FBA0B5A35F /* EventForwarder.swift in Sources */,
 				ACDE29DAF0C376AE59E2EAA1 /* FoldBarApp.swift in Sources */,
 				76652A3466F9F4C3A767115A /* IconCapturer.swift in Sources */,
@@ -185,6 +192,7 @@
 				E0CC91B025AB5B24A47A1642 /* MenuBarItemScanner.swift in Sources */,
 				DFEF4C40BEF74F7759CBC981 /* MenuBarModels.swift in Sources */,
 				7F3C5D9F80444A51F5688B6A /* OverflowPanel.swift in Sources */,
+				0EF6BAB05385AFEA3ED7DB7F /* PanelAppearance.swift in Sources */,
 				9D16B19EC05C65936AF5C00E /* StatusBarController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
