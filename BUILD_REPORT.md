@@ -25,6 +25,12 @@ and use the public high-transparency Liquid Glass effect on macOS 26 or newer.
 The Liquid Glass style pins readable dark-scheme foregrounds over a subtle tint,
 with lightly blurred cells and drop target; dark and compatibility styles use
 separately tuned panel and cell contrast.
+The overflow panel now uses a single `FoldBar` heading. Its icon slots are
+square, a complete five-column row spans the same inner width as the promotion
+drop target, and that target is slightly taller for a more balanced layout.
+The content width is derived from the grid and centered with equal 16-point
+panel insets. The larger heading has additional separation from the drop target,
+and drag previews reuse the full-height cell surface instead of shrinking.
 Interactive cross-app promotion still requires confirmation on the real menu
 bar; a rejected synthetic drag now leaves the bar expanded and reports the
 manual fallback instead of appearing to succeed.

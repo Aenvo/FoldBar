@@ -169,8 +169,19 @@ private struct OverflowPanelView: View {
     @State private var isPromoteTargeted = false
     @AppStorage(PanelAppearance.defaultsKey)
     private var storedAppearance = PanelAppearance.currentMaterial.rawValue
-    private let baseCellWidth: CGFloat = 42
+    private let cellSize: CGFloat = 46
     private let cellSpacing: CGFloat = 8
+    private let panelPadding: CGFloat = 16
+    private let panelChromeHeight: CGFloat = 102
+
+    private var contentWidth: CGFloat {
+        cellSize * CGFloat(OverflowGridLayout.columnCount)
+            + cellSpacing * CGFloat(OverflowGridLayout.columnCount - 1)
+    }
+
+    private var panelWidth: CGFloat {
+        contentWidth + 2 * panelPadding
+    }
 
     private var appearance: PanelAppearance {
         PanelAppearance.decode(storedAppearance)
@@ -181,7 +192,9 @@ private struct OverflowPanelView: View {
     }
 
     private var panelHeight: CGFloat {
-        min(346, CGFloat(max(1, rows.count) * 50 + 102))
+        let rowCount = CGFloat(max(1, rows.count))
+        let gridHeight = rowCount * cellSize + (rowCount - 1) * cellSpacing
+        return min(366, gridHeight + panelChromeHeight + 2 * panelPadding)
     }
 
     private var renderedAppearance: PanelAppearance {
@@ -228,13 +241,8 @@ private struct OverflowPanelView: View {
     private var panelContent: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("菜单栏溢出")
-                        .font(.headline)
-                    Text("FoldBar")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
+                Text("FoldBar")
+                    .font(.system(size: 17, weight: .semibold))
                 Spacer()
                 Button("展开", action: onExpand)
                 .buttonStyle(.borderless)
@@ -243,6 +251,7 @@ private struct OverflowPanelView: View {
                     .buttonStyle(.borderless)
                     .help("选择悬浮面板外观")
             }
+            .padding(.bottom, 4)
 
             promoteDropZone
 
@@ -267,10 +276,10 @@ private struct OverflowPanelView: View {
                     }
                 }
             }
-
         }
-        .padding(12)
-        .frame(width: 286, height: panelHeight)
+        .frame(width: contentWidth, alignment: .leading)
+        .padding(panelPadding)
+        .frame(width: panelWidth, height: panelHeight, alignment: .topLeading)
     }
 
     @ViewBuilder
@@ -320,7 +329,7 @@ private struct OverflowPanelView: View {
         }
         .foregroundStyle(isPromoteTargeted ? Color.accentColor : .secondary)
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 8)
+        .padding(.vertical, 12)
         .background { dropZoneBackground }
         .overlay {
             RoundedRectangle(cornerRadius: 8)
@@ -341,40 +350,38 @@ private struct OverflowPanelView: View {
 
     private func iconCell(_ entry: OverflowGridCell) -> some View {
         let item = entry.item
-        let width = baseCellWidth * CGFloat(entry.span) + cellSpacing * CGFloat(entry.span - 1)
+        let width = cellSize * CGFloat(entry.span) + cellSpacing * CGFloat(entry.span - 1)
         return Button {
             onClick(item)
         } label: {
-            ZStack {
-                let shape = RoundedRectangle(cornerRadius: 9)
-                if renderedAppearance == .liquidGlass {
-                    shape
-                        .fill(.ultraThinMaterial)
-                        .opacity(0.52)
-                        .overlay { shape.fill(Color.black.opacity(0.12)) }
-                } else {
-                    shape.fill(iconCellFill)
-                }
-                Image(nsImage: item.image)
-                    .resizable()
-                    .interpolation(.high)
-                    .scaledToFit()
-                    .frame(maxWidth: width - 12, maxHeight: 24)
-            }
-            .frame(width: width, height: 42)
-            .contentShape(Rectangle())
+            iconCellSurface(item, width: width)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help(item.window.displayName)
         .draggable(String(item.id)) {
+            iconCellSurface(item, width: width)
+        }
+    }
+
+    private func iconCellSurface(_ item: CapturedItem, width: CGFloat) -> some View {
+        ZStack {
+            let shape = RoundedRectangle(cornerRadius: 9)
+            if renderedAppearance == .liquidGlass {
+                shape
+                    .fill(.ultraThinMaterial)
+                    .opacity(0.52)
+                    .overlay { shape.fill(Color.black.opacity(0.12)) }
+            } else {
+                shape.fill(iconCellFill)
+            }
             Image(nsImage: item.image)
                 .resizable()
                 .interpolation(.high)
                 .scaledToFit()
                 .frame(maxWidth: width - 12, maxHeight: 24)
-                .padding(7)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 9))
         }
+        .frame(width: width, height: cellSize)
     }
 
     @ViewBuilder
