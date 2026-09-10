@@ -170,7 +170,7 @@ final class StatusBarController {
     }
 
     private func updateToggleIcon() {
-        toggleItem.button?.image = symbol(isCollapsed ? "square.grid.3x3.fill" : "chevron.up")
+        toggleItem.button?.image = symbol(isCollapsed ? "chevron.down" : "chevron.up")
     }
 
     private func symbol(_ name: String) -> NSImage? {
@@ -409,7 +409,7 @@ final class StatusBarController {
         open.isEnabled = isCollapsed
         menu.addItem(open)
 
-        let arrange = NSMenuItem(title: "整理图标…", action: #selector(arrangeFromMenu), keyEquivalent: "")
+        let arrange = NSMenuItem(title: "整理图标", action: #selector(arrangeFromMenu), keyEquivalent: "")
         arrange.target = self
         menu.addItem(arrange)
 

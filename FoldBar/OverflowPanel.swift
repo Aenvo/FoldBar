@@ -189,12 +189,10 @@ private struct OverflowPanelView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button(action: onExpand) {
-                    Label("展开", systemImage: "chevron.left.to.line")
-                }
+                Button("展开", action: onExpand)
                 .buttonStyle(.borderless)
                 .help("展开左侧真实菜单栏图标，并保持展开")
-                Button("整理…", action: onManage)
+                Button("整理", action: onManage)
                     .buttonStyle(.borderless)
                     .help("展开真实菜单栏，然后按住 ⌘ 拖动图标")
             }
