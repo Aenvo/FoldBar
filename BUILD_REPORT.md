@@ -31,7 +31,11 @@ drop target, and that target is slightly taller for a more balanced layout.
 The content width is derived from the grid and centered with equal 16-point
 panel insets. The larger heading has additional separation from the drop target,
 and drag previews reuse the full-height cell surface instead of shrinking.
-Captured icons render up to 26 points high inside the unchanged 46-point cells.
+Captured icons render up to 28 points high inside the unchanged 46-point cells.
+Drag previews add a blue cell tint, while an active promotion target uses a
+light-blue fill and stronger blue border. Liquid Glass cells use a slightly
+stronger material blur. The former compatibility material is presented as Light
+Mode with a modest white overlay that reduces panel transparency.
 Interactive cross-app promotion still requires confirmation on the real menu
 bar; a rejected synthetic drag now leaves the bar expanded and reports the
 manual fallback instead of appearing to succeed.

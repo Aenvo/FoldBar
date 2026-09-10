@@ -11,7 +11,7 @@ enum PanelAppearance: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .currentMaterial: "当前材质（兼容模式）"
+        case .currentMaterial: "浅色模式"
         case .dark: "暗色模式"
         case .liquidGlass: "高透明 Liquid Glass"
         }
@@ -20,11 +20,11 @@ enum PanelAppearance: String, CaseIterable, Identifiable {
     var detail: String {
         switch self {
         case .currentMaterial:
-            "保留现在的系统毛玻璃外观，并兼容 macOS 14 及更高版本。"
+            "使用透明度更低的浅色系统毛玻璃背景，并兼容 macOS 14 及更高版本。"
         case .dark:
             "使用更通透的深色模糊背景，在保留壁纸质感的同时维持清晰。"
         case .liquidGlass:
-            "在 macOS 26 及更高版本使用原生高透明玻璃，图标区域带有轻微模糊；较低版本自动回退到当前材质。"
+            "在 macOS 26 及更高版本使用原生高透明玻璃，图标区域带有增强模糊；较低版本自动回退到浅色模式。"
         }
     }
 

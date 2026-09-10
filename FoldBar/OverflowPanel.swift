@@ -170,7 +170,7 @@ private struct OverflowPanelView: View {
     @AppStorage(PanelAppearance.defaultsKey)
     private var storedAppearance = PanelAppearance.currentMaterial.rawValue
     private let cellSize: CGFloat = 46
-    private let iconMaxHeight: CGFloat = 26
+    private let iconMaxHeight: CGFloat = 28
     private let cellSpacing: CGFloat = 8
     private let panelPadding: CGFloat = 16
     private let panelChromeHeight: CGFloat = 102
@@ -289,7 +289,11 @@ private struct OverflowPanelView: View {
         switch appearance {
         case .currentMaterial:
             panelContent
-                .background(.regularMaterial, in: shape)
+                .background {
+                    shape
+                        .fill(.regularMaterial)
+                        .overlay { shape.fill(Color.white.opacity(0.10)) }
+                }
                 .overlay { panelBorder(shape, opacity: 0.16) }
         case .dark:
             panelContent
@@ -306,7 +310,11 @@ private struct OverflowPanelView: View {
                     .overlay { panelBorder(shape, opacity: 0.10) }
             } else {
                 panelContent
-                    .background(.regularMaterial, in: shape)
+                    .background {
+                        shape
+                            .fill(.regularMaterial)
+                            .overlay { shape.fill(Color.white.opacity(0.10)) }
+                    }
                     .overlay { panelBorder(shape, opacity: 0.16) }
             }
         }
@@ -328,15 +336,15 @@ private struct OverflowPanelView: View {
             Text(isPromoteTargeted ? "松开放回菜单栏" : "拖到这里：在菜单栏中保持可见")
                 .font(.caption)
         }
-        .foregroundStyle(isPromoteTargeted ? Color.accentColor : .secondary)
+        .foregroundStyle(isPromoteTargeted ? Color.blue : .secondary)
         .frame(maxWidth: .infinity)
         .padding(.vertical, 12)
         .background { dropZoneBackground }
         .overlay {
             RoundedRectangle(cornerRadius: 8)
                 .strokeBorder(
-                    isPromoteTargeted ? Color.accentColor.opacity(0.75) : Color.secondary.opacity(0.25),
-                    style: StrokeStyle(lineWidth: 1, dash: [4, 3])
+                    isPromoteTargeted ? Color.blue.opacity(0.90) : Color.secondary.opacity(0.25),
+                    style: StrokeStyle(lineWidth: isPromoteTargeted ? 1.5 : 1, dash: [4, 3])
                 )
         }
         .dropDestination(for: String.self) { payloads, _ in
@@ -361,20 +369,31 @@ private struct OverflowPanelView: View {
         .buttonStyle(.plain)
         .help(item.window.displayName)
         .draggable(String(item.id)) {
-            iconCellSurface(item, width: width)
+            iconCellSurface(item, width: width, isDragging: true)
         }
     }
 
-    private func iconCellSurface(_ item: CapturedItem, width: CGFloat) -> some View {
+    private func iconCellSurface(
+        _ item: CapturedItem,
+        width: CGFloat,
+        isDragging: Bool = false
+    ) -> some View {
         ZStack {
             let shape = RoundedRectangle(cornerRadius: 9)
             if renderedAppearance == .liquidGlass {
                 shape
-                    .fill(.ultraThinMaterial)
-                    .opacity(0.52)
+                    .fill(.thinMaterial)
+                    .opacity(0.56)
                     .overlay { shape.fill(Color.black.opacity(0.12)) }
             } else {
                 shape.fill(iconCellFill)
+            }
+            if isDragging {
+                shape
+                    .fill(Color.blue.opacity(0.22))
+                    .overlay {
+                        shape.strokeBorder(Color.blue.opacity(0.65), lineWidth: 1)
+                    }
             }
             Image(nsImage: item.image)
                 .resizable()
@@ -394,13 +413,13 @@ private struct OverflowPanelView: View {
                 .overlay {
                     shape.fill(
                         isPromoteTargeted
-                            ? Color.accentColor.opacity(0.16)
+                            ? Color.blue.opacity(0.18)
                             : Color.black.opacity(0.10)
                     )
                 }
         } else {
             shape.fill(
-                isPromoteTargeted ? Color.accentColor.opacity(0.16) : passiveDropZoneFill
+                isPromoteTargeted ? Color.blue.opacity(0.18) : passiveDropZoneFill
             )
         }
     }
