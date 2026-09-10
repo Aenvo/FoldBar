@@ -9,6 +9,28 @@ private final class FirstMouseHostingView<Content: View>: NSHostingView<Content>
 }
 
 @MainActor
+private final class OverflowDragState: ObservableObject {
+    @Published private(set) var isDraggingItem = false
+    private var releaseTask: Task<Void, Never>?
+
+    func beginDragging() {
+        releaseTask?.cancel()
+        isDraggingItem = true
+        releaseTask = Task { @MainActor [weak self] in
+            while (NSEvent.pressedMouseButtons & 1) == 1 {
+                do {
+                    try await Task.sleep(for: .milliseconds(8))
+                } catch {
+                    return
+                }
+            }
+            self?.isDraggingItem = false
+            self?.releaseTask = nil
+        }
+    }
+}
+
+@MainActor
 final class OverflowPanel {
     private var panel: NSPanel?
     private var monitors: [Any] = []
@@ -26,8 +48,10 @@ final class OverflowPanel {
     ) {
         close()
 
+        let dragState = OverflowDragState()
         let content = OverflowPanelView(
             items: items,
+            dragState: dragState,
             onClick: { [weak self] item in
                 Task { @MainActor in
                     self?.close()
@@ -161,6 +185,7 @@ enum OverflowGridLayout {
 
 private struct OverflowPanelView: View {
     let items: [CapturedItem]
+    @ObservedObject var dragState: OverflowDragState
     let onClick: (CapturedItem) -> Void
     let onPromote: (CapturedItem) -> Void
     let onExpand: () -> Void
@@ -232,6 +257,14 @@ private struct OverflowPanelView: View {
         case .liquidGlass:
             Color.black.opacity(0.16)
         }
+    }
+
+    private var isDropZoneActive: Bool {
+        dragState.isDraggingItem || isPromoteTargeted
+    }
+
+    private var dropZoneBlueOpacity: Double {
+        isPromoteTargeted ? 0.24 : (dragState.isDraggingItem ? 0.12 : 0)
     }
 
     var body: some View {
@@ -333,18 +366,18 @@ private struct OverflowPanelView: View {
     private var promoteDropZone: some View {
         HStack(spacing: 7) {
             Image(systemName: "menubar.arrow.up.rectangle")
-            Text(isPromoteTargeted ? "松开放回菜单栏" : "拖到这里：在菜单栏中保持可见")
+            Text("拖到这里：在菜单栏中保持可见")
                 .font(.caption)
         }
-        .foregroundStyle(isPromoteTargeted ? Color.blue : .secondary)
+        .foregroundStyle(.secondary)
         .frame(maxWidth: .infinity)
         .padding(.vertical, 12)
         .background { dropZoneBackground }
         .overlay {
             RoundedRectangle(cornerRadius: 8)
                 .strokeBorder(
-                    isPromoteTargeted ? Color.blue.opacity(0.90) : Color.secondary.opacity(0.25),
-                    style: StrokeStyle(lineWidth: isPromoteTargeted ? 1.5 : 1, dash: [4, 3])
+                    isDropZoneActive ? Color.blue.opacity(0.90) : Color.secondary.opacity(0.25),
+                    style: StrokeStyle(lineWidth: isDropZoneActive ? 1.5 : 1, dash: [4, 3])
                 )
         }
         .dropDestination(for: String.self) { payloads, _ in
@@ -368,7 +401,10 @@ private struct OverflowPanelView: View {
         }
         .buttonStyle(.plain)
         .help(item.window.displayName)
-        .draggable(String(item.id)) {
+        .onDrag {
+            dragState.beginDragging()
+            return NSItemProvider(object: String(item.id) as NSString)
+        } preview: {
             iconCellSurface(item, width: width, isDragging: true)
         }
     }
@@ -412,14 +448,14 @@ private struct OverflowPanelView: View {
                 .fill(.ultraThinMaterial)
                 .overlay {
                     shape.fill(
-                        isPromoteTargeted
-                            ? Color.blue.opacity(0.18)
+                        isDropZoneActive
+                            ? Color.blue.opacity(dropZoneBlueOpacity)
                             : Color.black.opacity(0.10)
                     )
                 }
         } else {
             shape.fill(
-                isPromoteTargeted ? Color.blue.opacity(0.18) : passiveDropZoneFill
+                isDropZoneActive ? Color.blue.opacity(dropZoneBlueOpacity) : passiveDropZoneFill
             )
         }
     }
