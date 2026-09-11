@@ -63,6 +63,18 @@ enum MenuBarItemScanner {
         return result.sorted { $0.frame.minX < $1.frame.minX }
     }
 
+    /// Presents the item nearest the visible, right-hand side first. Discovery
+    /// remains left-to-right because that makes the contiguous overflow scan
+    /// straightforward; the panel intentionally exposes the reverse order.
+    static func panelDisplayOrder(
+        _ windows: [MenuBarItemWindow]
+    ) -> [MenuBarItemWindow] {
+        windows.sorted {
+            if $0.frame.minX == $1.frame.minX { return $0.id < $1.id }
+            return $0.frame.minX > $1.frame.minX
+        }
+    }
+
     static func frame(of id: CGWindowID) -> CGRect? {
         statusWindows().first { $0.id == id }?.frame
     }

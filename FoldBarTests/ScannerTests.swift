@@ -50,4 +50,19 @@ struct ScannerTests {
         )
         #expect(found.map(\.id) == [2, 3])
     }
+
+    @Test("Panel presents the status items nearest the menu-bar right first")
+    func panelDisplayOrder() {
+        let farthestLeft = Self.window(2, x: 700, width: 30)
+        let middle = Self.window(3, x: 740, width: 30)
+        let nearestRight = Self.window(4, x: 780, width: 30)
+
+        let found = MenuBarItemScanner.panelDisplayOrder([
+            middle,
+            farthestLeft,
+            nearestRight
+        ])
+
+        #expect(found.map(\.id) == [4, 3, 2])
+    }
 }

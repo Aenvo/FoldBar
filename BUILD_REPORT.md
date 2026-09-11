@@ -5,7 +5,7 @@ Verified locally on 2026-09-11 with Xcode 26.6 (17F113), Swift 6.3.3, and the ma
 ## Results
 
 - Debug app-hosted test build: passed.
-- Swift Testing: 22 tests passed.
+- Swift Testing: 25 tests passed.
 - Release build: passed with no source compiler warnings.
 - Release binary: universal `arm64` + `x86_64`.
 - Deployment target: macOS 14.0.
@@ -58,6 +58,18 @@ as `CGWindowID` values instead of trapping during panel opening. When an own
 status item has no usable Core Graphics window ID, its horizontal frame is used
 as a fallback exclusion so FoldBar cannot select its own trigger as an import
 source.
+The panel now derives its presentation order from the live hidden windows in
+right-to-left order, placing the item nearest the menu-bar right first and the
+farthest-left/system-overflow item last. Promotion temporarily reduces FoldBar's
+trigger length to zero, and does the same to its separator only when more room
+is needed, then waits for the source frame to settle inside the current
+display's visible right-hand menu-bar segment before posting any event. Both own
+lengths are restored before post-drag verification and on every early exit or
+application quit. It deliberately avoids `isVisible = false`, which macOS can
+persist across launches.
+When no managed items are present, the panel no longer renders a separate empty
+state title or description. The dashed drop zone expands through the remaining
+content area while the non-empty five-column layout stays unchanged.
 
 ## Packaged artifact
 
@@ -90,6 +102,23 @@ The packaged app is signed with the local Apple Development certificate so its p
 - Post-drag managed-side verification before re-collapsing.
 - Defensive position snapshot merge and restore filtering.
 - Expanded-section discovery used for flash-free pre-collapse caching.
+- Right-to-left overflow-panel presentation order.
+- Visible menu-bar-segment validation, including overlapping X ranges on different displays.
 - Adaptive one-, two-, and three-column spans for wide status items.
 
-The earlier 0.1.0 build was interactively tested and exposed the permission repetition, visible capture flash, and aspect-ratio defects addressed in 0.2.0. The signed `feat/panel-command-drag-import` candidate is installed and launches from `/Applications/FoldBar.app`. After the window-ID fix, the installed trigger was exercised through System Events: the panel opened, remained alive across multiple candidate-refresh intervals, closed normally, and produced no new crash report. On 2026-09-11, the user then reported that the installed real-menu-bar Command-drag import acceptance path succeeded. The outside-panel cancellation path was not reported separately and remains pending. Screen Recording, Accessibility, click forwarding, and other cross-app synthetic Command-drag behavior also remain interaction-dependent.
+The earlier 0.1.0 build was interactively tested and exposed the permission repetition, visible capture flash, and aspect-ratio defects addressed in 0.2.0. The signed `feat/panel-command-drag-import` candidate is installed and launches from `/Applications/FoldBar.app`. After the window-ID fix, the installed trigger was exercised through System Events: the panel opened, remained alive across multiple candidate-refresh intervals, closed normally, and produced no new crash report. On 2026-09-11, the user then reported that the installed real-menu-bar Command-drag import acceptance path succeeded. The outside-panel cancellation path was not reported separately and remains pending.
+
+The later notch-overflow and empty-panel candidate was built as a signed
+universal Release app and installed over that same single
+`/Applications/FoldBar.app`; the installed executable hash matched the verified
+candidate. Two clean quit/normal-launch cycles completed the initial capture and
+collapse with FoldBar's trigger visible. The final panel was opened through its
+own Accessibility status item, rendered all nine cached proxies in the new
+presentation order, closed with Escape, left the installed process alive, and
+produced no new FoldBar crash report. The empty-state expansion was not rendered
+live because the current managed list is non-empty; creating that state would
+require rearranging the user's real menu-bar items. The real promotion of the
+two system-hidden items was likewise left for user acceptance because it changes
+the user's actual menu-bar order. Screen Recording, Accessibility, click
+forwarding, the empty-state visual, that hidden-item promotion, and other
+cross-app synthetic Command-drag behavior remain interaction-dependent.

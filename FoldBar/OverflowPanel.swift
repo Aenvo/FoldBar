@@ -430,14 +430,7 @@ private struct OverflowPanelView: View {
 
             promoteDropZone
 
-            if items.isEmpty {
-                ContentUnavailableView(
-                    "没有收纳的图标",
-                    systemImage: "square.grid.3x3",
-                    description: Text("点“展开”，按住 ⌘ 将图标拖到分隔符左侧。")
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
+            if !items.isEmpty {
                 ScrollView {
                     VStack(alignment: .leading, spacing: cellSpacing) {
                         ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
@@ -511,8 +504,11 @@ private struct OverflowPanelView: View {
                 .font(.caption)
         }
         .foregroundStyle(.secondary)
-        .frame(maxWidth: .infinity)
         .padding(.vertical, 12)
+        .frame(
+            maxWidth: .infinity,
+            maxHeight: items.isEmpty ? .infinity : nil
+        )
         .background { dropZoneBackground }
         .overlay {
             RoundedRectangle(cornerRadius: 8)

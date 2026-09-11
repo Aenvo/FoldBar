@@ -9,6 +9,8 @@ Preserve the product model:
 - FoldBar owns two `NSStatusItem`s: an always-visible trigger and a separator.
 - Collapsing enlarges the separator so status items on its managed side are parked off-screen by macOS.
 - The overflow panel shows in-memory screenshots of the real status-item windows. It does not take ownership of another app's `NSStatusItem`.
+- The overflow panel presents managed items from menu-bar right to left: the item nearest the visible side comes first and the farthest-left/system-overflow item comes last.
+- When the managed list is empty, omit empty-state copy and expand the dashed drop zone to fill the content area below the header.
 - Clicking a proxy temporarily expands the real menu bar and forwards a click to the validated real window.
 - Dragging a proxy to “keep visible” forwards a validated Command-drag. While the panel is open, a Command-drag that starts on a validated visible status-item window is intercepted before the real icon can leave the menu bar; FoldBar shows a proxy and, after a drop inside the panel, performs a second validated Command-drag entirely within the menu-bar strip to move the real item into the managed section.
 
@@ -107,6 +109,7 @@ Treat synthetic input and status-item preference recovery as high-risk code.
 - Snapshot only sane `NSStatusItem Preferred Position` values, never restore paths outside the user's own preference domains, and never restore FoldBar's own domain through the generic recovery loop.
 - On termination, cancel pending work, close the panel, remove monitors, and expand the separator so third-party items are not left parked off-screen.
 - Preserve the pre-collapse capture cache. Opening the panel must not visibly expand the real menu bar merely to take screenshots.
+- Promotion may temporarily reduce FoldBar's trigger length and then its separator length to zero to free space beside a notch. Do not use `isVisible = false`, because the system can persist that state across launches. Re-resolve the live source after each layout change, send no event unless the full source is inside that display's visible menu-bar segment, and restore both own lengths after every success, failure, cancellation, and quit.
 - Preserve each captured item's aspect ratio and the one-to-three-slot adaptive layout for text, temperature, battery, and other wide items.
 
 Add focused tests whenever scanner cutoffs, coordinate transforms, promotion geometry, recovery filtering, or grid-span rules change. Interactive behavior still requires a real menu bar; unit tests alone are not acceptance evidence.

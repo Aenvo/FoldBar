@@ -21,6 +21,7 @@ final class StatusBarController {
     private var cacheCaptureTask: Task<Void, Never>?
     private var importCandidateRefreshTask: Task<Void, Never>?
     private var externalDragCaptureTask: Task<Void, Never>?
+    private var promotionTask: Task<Void, Never>?
     private var externalDragItemID: CGWindowID?
     private var cachedItems: [CapturedItem] = []
     private var preparingCollapse = false
@@ -96,12 +97,17 @@ final class StatusBarController {
     func expandForQuit() {
         initialCollapseTask?.cancel()
         cacheCaptureTask?.cancel()
+        promotionTask?.cancel()
+        promotionTask = nil
         preparingCollapse = false
         disarmAutoCollapse()
         disarmMenuBarImport()
         panel.close()
-        guard isCollapsed else { return }
+        // A promotion can temporarily reduce FoldBar's own status-item lengths
+        // to make room beside a notch. Quitting must restore both immediately.
         separatorItem.length = NSStatusItem.variableLength
+        toggleItem.length = NSStatusItem.variableLength
+        guard isCollapsed else { return }
         isCollapsed = false
     }
 
@@ -216,8 +222,10 @@ final class StatusBarController {
         }
 
         let hidden = MenuBarItemScanner.hiddenItems()
-        let hiddenIDs = Set(hidden.map(\.id))
-        let items = cachedItems.filter { hiddenIDs.contains($0.id) }
+        let cachedByID = Dictionary(uniqueKeysWithValues: cachedItems.map { ($0.id, $0) })
+        let items = MenuBarItemScanner.panelDisplayOrder(hidden).compactMap {
+            cachedByID[$0.id]
+        }
         let anchor = toggleItem.button?.window?.frame ?? .zero
 
         guard !items.isEmpty || hidden.isEmpty else {
@@ -268,47 +276,89 @@ final class StatusBarController {
 
     private func promoteToMenuBar(_ item: CapturedItem) {
         guard requireAccessibility() else { return }
+        guard promotionTask == nil else { return }
         expand()
 
-        Task { @MainActor [weak self] in
+        promotionTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            var frame: CGRect?
-            for _ in 0..<4 {
-                try? await Task.sleep(for: .milliseconds(140))
-                if let found = MenuBarItemScanner.frame(of: item.id), Self.isInMenuBarStrip(found) {
-                    frame = found
-                    break
-                }
-            }
-            guard let frame,
-                  let toggleFrame = toggleItem.button?.window?.frame,
-                  let targetX = Self.promotionTargetX(
-                    itemFrame: frame,
-                    toggleFrame: toggleFrame,
-                    displays: Self.activeDisplayBounds()
-                  ) else {
-                showAlert(
-                    title: "无法移动这个图标",
-                    message: "真实图标没有出现在可拖动的菜单栏区域。菜单栏已保持展开，请手动按住 ⌘ 拖动。"
-                )
-                return
-            }
-
-            let posted = await EventForwarder.commandDrag(
-                from: CGPoint(x: frame.midX, y: frame.midY),
-                to: CGPoint(x: targetX, y: frame.midY)
-            )
-            guard posted, await self.waitForPromotion(of: item.id) else {
-                showAlert(
-                    title: "图标没有移动成功",
-                    message: "macOS 没有接受这次自动拖动。菜单栏已保持展开，请按住 ⌘ 将这个真实图标拖到 FoldBar 图标右侧。"
-                )
-                return
-            }
-            // collapse() snapshots the newly ordered bar before parking the
-            // remaining overflow items again.
-            collapse()
+            await self.performPromotion(item)
+            self.promotionTask = nil
         }
+    }
+
+    private func performPromotion(_ item: CapturedItem) async {
+        guard let originalToggleFrame = toggleItem.button?.window?.frame else {
+            showPromotionUnavailableAlert()
+            return
+        }
+
+        let originalToggleLength = toggleItem.length
+        let originalSeparatorLength = separatorItem.length
+        defer {
+            separatorItem.length = originalSeparatorLength
+            toggleItem.length = originalToggleLength
+        }
+
+        // macOS can keep otherwise valid status-item windows under the notch,
+        // where a synthetic mouse-down cannot begin AppKit's reorder gesture.
+        // Temporarily remove our trigger's footprint so WindowServer can move the
+        // requested item into the real, interactive right-hand menu-bar area.
+        toggleItem.length = 0
+        var frame = await waitForStableMenuBarFrame(of: item.id)
+
+        // On a crowded bar the trigger alone may not free enough room. The
+        // separator can also be reduced safely because its original order and
+        // length are restored immediately after the mouse-up.
+        let visibleSegments = Self.activeVisibleMenuBarSegments()
+        if frame.map({
+            !Self.isInVisibleMenuBarSegment($0, segments: visibleSegments)
+        }) ?? true {
+            separatorItem.length = 0
+            frame = await waitForStableMenuBarFrame(of: item.id)
+        }
+
+        guard !Task.isCancelled else { return }
+        guard let frame,
+              Self.isInVisibleMenuBarSegment(frame, segments: visibleSegments),
+              let targetX = Self.promotionTargetX(
+                itemFrame: frame,
+                toggleFrame: originalToggleFrame,
+                displays: Self.activeDisplayBounds()
+              ) else {
+            showPromotionUnavailableAlert()
+            return
+        }
+
+        let posted = await EventForwarder.commandDrag(
+            from: CGPoint(x: frame.midX, y: frame.midY),
+            to: CGPoint(x: targetX, y: frame.midY)
+        )
+
+        // Put FoldBar's own items back before checking which side of the
+        // separator now owns the promoted window.
+        separatorItem.length = originalSeparatorLength
+        toggleItem.length = originalToggleLength
+        guard (try? await Task.sleep(for: .milliseconds(140))) != nil,
+              !Task.isCancelled else { return }
+
+        guard posted, await waitForPromotion(of: item.id) else {
+            guard !Task.isCancelled else { return }
+            showAlert(
+                title: "图标没有移动成功",
+                message: "macOS 没有接受这次自动拖动。菜单栏已保持展开，请按住 ⌘ 将这个真实图标拖到 FoldBar 图标右侧。"
+            )
+            return
+        }
+        // collapse() snapshots the newly ordered bar before parking the
+        // remaining overflow items again.
+        collapse()
+    }
+
+    private func showPromotionUnavailableAlert() {
+        showAlert(
+            title: "无法移动这个图标",
+            message: "为刘海腾出空间后，真实图标仍没有进入可拖动的菜单栏区域。菜单栏已保持展开，请手动按住 ⌘ 拖动。"
+        )
     }
 
     // MARK: - Import from the real menu bar
@@ -479,6 +529,18 @@ final class StatusBarController {
         }
     }
 
+    static func isInVisibleMenuBarSegment(
+        _ frame: CGRect,
+        segments: [CGRect]
+    ) -> Bool {
+        segments.contains { segment in
+            frame.minY >= segment.minY - 2
+                && frame.maxY <= segment.maxY + 2
+                && frame.minX >= segment.minX - 1
+                && frame.maxX <= segment.maxX + 1
+        }
+    }
+
     static func isOnManagedSide(_ frame: CGRect, toggleMinX: CGFloat) -> Bool {
         frame.maxX <= toggleMinX
     }
@@ -539,8 +601,46 @@ final class StatusBarController {
         return ids.map(CGDisplayBounds)
     }
 
+    private static func activeVisibleMenuBarSegments() -> [CGRect] {
+        NSScreen.screens.compactMap { screen in
+            let screenNumberKey = NSDeviceDescriptionKey("NSScreenNumber")
+            guard let number = screen.deviceDescription[screenNumberKey] as? NSNumber else {
+                return nil
+            }
+            let displayBounds = CGDisplayBounds(CGDirectDisplayID(number.uint32Value))
+            let rightArea = screen.auxiliaryTopRightArea.flatMap {
+                $0.width > 0 ? $0 : nil
+            }
+            let minX = rightArea?.minX ?? displayBounds.minX
+            let width = rightArea?.width ?? displayBounds.width
+            return CGRect(
+                x: minX,
+                y: displayBounds.minY,
+                width: width,
+                height: 40
+            )
+        }
+    }
+
     private static func isInMenuBarStrip(_ frame: CGRect) -> Bool {
         isInStrip(frame, displays: activeDisplayBounds())
+    }
+
+    private func waitForStableMenuBarFrame(of id: CGWindowID) async -> CGRect? {
+        var previous: CGRect?
+
+        for _ in 0..<8 {
+            guard (try? await Task.sleep(for: .milliseconds(70))) != nil,
+                  !Task.isCancelled else { return nil }
+            guard let frame = MenuBarItemScanner.frame(of: id),
+                  Self.isInMenuBarStrip(frame) else {
+                previous = nil
+                continue
+            }
+            if previous == frame { return frame }
+            previous = frame
+        }
+        return previous
     }
 
     private func waitForPromotion(of id: CGWindowID) async -> Bool {

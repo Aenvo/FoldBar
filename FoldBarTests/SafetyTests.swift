@@ -21,6 +21,30 @@ struct SafetyTests {
         #expect(StatusBarController.isInStrip(item, displays: [Self.main, Self.left]))
     }
 
+    @Test("Promotion sources must fit inside a visible menu-bar segment")
+    func visibleMenuBarSegment() {
+        let rightOfNotch = CGRect(x: 948, y: 0, width: 762, height: 40)
+
+        #expect(StatusBarController.isInVisibleMenuBarSegment(
+            CGRect(x: 963, y: 0, width: 38, height: 24),
+            segments: [rightOfNotch]
+        ))
+        #expect(!StatusBarController.isInVisibleMenuBarSegment(
+            CGRect(x: 929, y: 0, width: 38, height: 24),
+            segments: [rightOfNotch]
+        ))
+    }
+
+    @Test("A different display with overlapping X does not authorize promotion")
+    func visibleMenuBarSegmentMatchesDisplay() {
+        let upperDisplay = CGRect(x: 0, y: -1080, width: 1920, height: 40)
+
+        #expect(!StatusBarController.isInVisibleMenuBarSegment(
+            CGRect(x: 929, y: 0, width: 38, height: 24),
+            segments: [upperDisplay]
+        ))
+    }
+
     @Test("A same-layer window below the menu bar is rejected")
     func belowStrip() {
         let item = CGRect(x: 800, y: 400, width: 24, height: 24)
