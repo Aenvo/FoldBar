@@ -5,7 +5,7 @@ Verified locally on 2026-09-11 with Xcode 26.6 (17F113), Swift 6.3.3, and the ma
 ## Results
 
 - Debug app-hosted test build: passed.
-- Swift Testing: 25 tests passed.
+- Swift Testing: 29 tests passed.
 - Release build: passed with no source compiler warnings.
 - Release binary: universal `arm64` + `x86_64`.
 - Deployment target: macOS 14.0.
@@ -70,6 +70,17 @@ persist across launches.
 When no managed items are present, the panel no longer renders a separate empty
 state title or description. The dashed drop zone expands through the remaining
 content area while the non-empty five-column layout stays unchanged.
+The current candidate targets the insertion point immediately left of FoldBar's
+trigger when a proxy is dragged to “keep visible”. It only re-collapses after
+the real status-item window is both on the separator's visible side and directly
+adjacent to the trigger; a different landing position leaves the bar expanded
+for manual correction.
+Panel hover help no longer treats the macOS 26 Control Center host process as
+the identity of every third-party item. While preparing the screenshot cache,
+FoldBar resolves each public `AXMenuExtra` help, description, or owning-app name
+on a utility task and matches it to the corresponding status window by center
+position. Empty or generic Control Center metadata falls back to a neutral menu
+bar item label.
 
 ## Packaged artifact
 
@@ -92,8 +103,9 @@ The packaged app is signed with the local Apple Development certificate so its p
 - Contiguity cutoff so a different display's status windows are not included.
 - Menu-bar geometry validation before synthetic events.
 - Negative X coordinates for displays left of the primary display.
-- Promotion target geometry for drag-to-visible.
-- Post-drag visible-side verification before re-collapsing.
+- Promotion target geometry for insertion immediately left of the FoldBar trigger.
+- Post-drag visible-side and trigger-adjacency verification before re-collapsing.
+- Accessibility hover-label priority, generic-host rejection, and status-window matching.
 - Command-drag source-window selection for menu-bar-to-panel import.
 - Safe rejection of negative and out-of-range AppKit window numbers.
 - Own-status-item frame fallback when no usable Core Graphics window ID exists.
@@ -122,3 +134,16 @@ two system-hidden items was likewise left for user acceptance because it changes
 the user's actual menu-bar order. Screen Recording, Accessibility, click
 forwarding, the empty-state visual, that hidden-item promotion, and other
 cross-app synthetic Command-drag behavior remain interaction-dependent.
+
+For the current arrow-left and hover-label candidate, a read-only live metadata
+probe matched all nine currently managed status windows to distinct owning-item
+information (CodexSquad, Bob, PixPin, Nutstore, ChatGPT, WeChat Input, Notion,
+Clash Verge, and Eagle). The probe did not move any real menu-bar item. The
+29-test suite and universal Release build pass; final drag placement remains a
+real-menu-bar acceptance item because exercising it changes the user's status
+item order.
+
+The verified universal candidate is installed at `/Applications/FoldBar.app`
+with bundle identifier `local.foldbar.app`, Apple Development team
+`42MUMXKY79`, and executable SHA-256
+`d38be823a71f05572fd187571dd87fb946e070470353fe82d41815dca2a06754`.

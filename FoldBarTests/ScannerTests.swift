@@ -65,4 +65,62 @@ struct ScannerTests {
 
         #expect(found.map(\.id) == [4, 3, 2])
     }
+
+    @Test("Generic Control Center ownership is not presented as item identity")
+    func genericDisplayName() {
+        let item = MenuBarItemWindow(
+            id: 2,
+            frame: CGRect(x: 700, y: 0, width: 30, height: 24),
+            ownerName: "控制中心",
+            windowName: "Item-0"
+        )
+
+        #expect(item.displayName == "菜单栏图标")
+    }
+
+    @Test("Accessibility metadata matches status windows by their shared center")
+    func accessibilityMetadataMatching() {
+        let first = Self.window(2, x: -3797, width: 34)
+        let second = Self.window(3, x: -3987, width: 38)
+        let metadata = [
+            MenuBarItemAccessibilityMetadata(
+                frame: CGRect(x: -3798, y: 5, width: 36, height: 24),
+                label: "Clash Verge"
+            ),
+            MenuBarItemAccessibilityMetadata(
+                frame: CGRect(x: -3980, y: 5, width: 24, height: 24),
+                label: "PixPin"
+            )
+        ]
+
+        let labels = MenuBarItemMetadataResolver.match(
+            windows: [first, second],
+            metadata: metadata
+        )
+
+        #expect(labels[first.id] == "Clash Verge")
+        #expect(labels[second.id] == "PixPin")
+    }
+
+    @Test("Native hover help wins and app identity is the final fallback")
+    func accessibilityLabelPriority() {
+        #expect(MenuBarItemMetadataResolver.preferredLabel(
+            help: "PixPin v3.4.3",
+            description: "截图工具",
+            title: "",
+            appName: "PixPin"
+        ) == "PixPin v3.4.3")
+        #expect(MenuBarItemMetadataResolver.preferredLabel(
+            help: "",
+            description: "",
+            title: "",
+            appName: "AlDente"
+        ) == "AlDente")
+        #expect(MenuBarItemMetadataResolver.preferredLabel(
+            help: "",
+            description: "控制中心",
+            title: "Item-0",
+            appName: "控制中心"
+        ) == nil)
+    }
 }

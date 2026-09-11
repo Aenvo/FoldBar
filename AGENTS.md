@@ -12,7 +12,7 @@ Preserve the product model:
 - The overflow panel presents managed items from menu-bar right to left: the item nearest the visible side comes first and the farthest-left/system-overflow item comes last.
 - When the managed list is empty, omit empty-state copy and expand the dashed drop zone to fill the content area below the header.
 - Clicking a proxy temporarily expands the real menu bar and forwards a click to the validated real window.
-- Dragging a proxy to “keep visible” forwards a validated Command-drag. While the panel is open, a Command-drag that starts on a validated visible status-item window is intercepted before the real icon can leave the menu bar; FoldBar shows a proxy and, after a drop inside the panel, performs a second validated Command-drag entirely within the menu-bar strip to move the real item into the managed section.
+- Dragging a proxy to “keep visible” forwards a validated Command-drag and inserts the real item immediately left of FoldBar's trigger. While the panel is open, a Command-drag that starts on a validated visible status-item window is intercepted before the real icon can leave the menu bar; FoldBar shows a proxy and, after a drop inside the panel, performs a second validated Command-drag entirely within the menu-bar strip to move the real item into the managed section.
 
 Do not replace this with Ice private-CGS behavior or claim that the panel contains real third-party views.
 
@@ -91,7 +91,7 @@ Screen Recording and Accessibility are separate macOS TCC grants. FoldBar may pr
 
 - Ask automatically only once; later interactions should direct the user to System Settings instead of repeatedly prompting.
 - Screen Recording is used only for individual menu-bar window images.
-- Accessibility is used only while the panel is open for a user-initiated Command-drag import, or after a user-initiated proxy click or drag.
+- Accessibility is used while preparing the panel cache to resolve each proxy's native hover help, while the panel is open for a user-initiated Command-drag import, or after a user-initiated proxy click or drag.
 - A newly granted Screen Recording permission may require relaunching the app before ScreenCaptureKit returns usable content.
 
 Do not change `PRODUCT_BUNDLE_IDENTIFIER`, the signing team, or signing style casually. TCC considers the bundle's designated requirement, so identity churn can cause duplicate privacy entries and repeated authorization. Do not run `tccutil reset`, edit TCC databases, or remove user preferences as routine testing; those actions require an explicit cleanup request and exact before/after verification.

@@ -18,9 +18,11 @@ enum IconCapturer {
     }
 
     static func capture(_ windows: [MenuBarItemWindow]) async -> [CapturedItem] {
+        async let hoverLabels = MenuBarItemMetadataResolver.labels(for: windows)
         guard let content = try? await SCShareableContent
             .excludingDesktopWindows(false, onScreenWindowsOnly: false)
         else { return [] }
+        let resolvedHoverLabels = await hoverLabels
         var result: [CapturedItem] = []
 
         for window in windows {
@@ -42,7 +44,8 @@ enum IconCapturer {
                     // Preserve the real logical size. Replacing it with a
                     // fixed width changes the image aspect ratio and visibly
                     // squeezes text meters such as temperatures and battery.
-                    image: NSImage(cgImage: image, size: window.frame.size)
+                    image: NSImage(cgImage: image, size: window.frame.size),
+                    hoverText: resolvedHoverLabels[window.id]
                 ))
             }
         }

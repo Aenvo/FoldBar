@@ -323,7 +323,7 @@ final class StatusBarController {
               let targetX = Self.promotionTargetX(
                 itemFrame: frame,
                 toggleFrame: originalToggleFrame,
-                displays: Self.activeDisplayBounds()
+                visibleSegments: visibleSegments
               ) else {
             showPromotionUnavailableAlert()
             return
@@ -345,7 +345,7 @@ final class StatusBarController {
             guard !Task.isCancelled else { return }
             showAlert(
                 title: "图标没有移动成功",
-                message: "macOS 没有接受这次自动拖动。菜单栏已保持展开，请按住 ⌘ 将这个真实图标拖到 FoldBar 图标右侧。"
+                message: "macOS 没有把这个图标放到 FoldBar 箭头左侧。菜单栏已保持展开，请按住 ⌘ 将它拖到箭头左侧并紧靠箭头。"
             )
             return
         }
@@ -578,19 +578,35 @@ final class StatusBarController {
     static func promotionTargetX(
         itemFrame: CGRect,
         toggleFrame: CGRect,
-        displays: [CGRect]
+        visibleSegments: [CGRect]
     ) -> CGFloat? {
-        guard let display = displays.first(where: { $0.contains(CGPoint(x: itemFrame.midX, y: itemFrame.midY)) }) else {
-            return nil
-        }
-        // Cross the midpoint of the neighboring status item instead of ending
-        // directly on its button center. The latter can be handled as a click
-        // target rather than a stable insertion boundary on macOS 26.
-        let proposed = toggleFrame.maxX + max(12, itemFrame.width)
-        let lower = display.minX + itemFrame.width / 2
-        let upper = display.maxX - itemFrame.width / 2
-        guard lower <= upper else { return nil }
-        return min(max(proposed, lower), upper)
+        guard itemFrame.width > 0,
+              itemFrame.width.isFinite,
+              toggleFrame.minX.isFinite,
+              let segment = visibleSegments.first(where: {
+                Self.isInVisibleMenuBarSegment(itemFrame, segments: [$0])
+                    && toggleFrame.midX >= $0.minX
+                    && toggleFrame.midX <= $0.maxX
+              }) else { return nil }
+
+        // Stop just before the trigger's left edge. This crosses every item
+        // currently between the separator and the trigger, so AppKit inserts
+        // the promoted item in the nearest slot on the trigger's left instead
+        // of placing it among the ordinary items on the trigger's right.
+        let targetX = toggleFrame.minX - 2
+        let finalSlotMinX = toggleFrame.minX - itemFrame.width
+        guard finalSlotMinX >= segment.minX - 1,
+              targetX >= segment.minX,
+              targetX <= segment.maxX else { return nil }
+        return targetX
+    }
+
+    static func isImmediatelyLeftOfToggle(
+        _ frame: CGRect,
+        toggleFrame: CGRect
+    ) -> Bool {
+        let gap = toggleFrame.minX - frame.maxX
+        return gap >= -1 && gap <= 2
     }
 
     private static func activeDisplayBounds() -> [CGRect] {
@@ -648,8 +664,10 @@ final class StatusBarController {
             guard (try? await Task.sleep(for: .milliseconds(120))) != nil else { return false }
             guard let frame = MenuBarItemScanner.frame(of: id),
                   let separatorFrame = separatorItem.button?.window?.frame,
+                  let toggleFrame = toggleItem.button?.window?.frame,
                   Self.isInMenuBarStrip(frame) else { continue }
-            if Self.isOnVisibleSide(frame, separatorFrame: separatorFrame) {
+            if Self.isOnVisibleSide(frame, separatorFrame: separatorFrame),
+               Self.isImmediatelyLeftOfToggle(frame, toggleFrame: toggleFrame) {
                 return true
             }
         }

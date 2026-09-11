@@ -16,6 +16,7 @@
 		8E1D38C34C8541C415837783 /* MenuBarCommandDragMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC8EB8974C9F69262A89BE0A /* MenuBarCommandDragMonitor.swift */; };
 		9D16B19EC05C65936AF5C00E /* StatusBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92EB1088F5530CCEAC5B1B5B /* StatusBarController.swift */; };
 		ACDE29DAF0C376AE59E2EAA1 /* FoldBarApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F7E1047B214A889A6F7A075 /* FoldBarApp.swift */; };
+		AF8594F1CFD85CA6DC369D00 /* MenuBarItemMetadataResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB5161F405494A7CEFB1D9BF /* MenuBarItemMetadataResolver.swift */; };
 		D071FF18853A6B1472442DB5 /* SafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06443CFD70DBFB74187DB17A /* SafetyTests.swift */; };
 		D123B0CEC710214CA5C6D535 /* ScannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3783DBDBF4A87DBF6D5059D /* ScannerTests.swift */; };
 		DFEF4C40BEF74F7759CBC981 /* MenuBarModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9033D86C7F9B7C24908A639D /* MenuBarModels.swift */; };
@@ -43,6 +44,7 @@
 		9D754856CB766382F2A732E7 /* OverflowPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverflowPanel.swift; sourceTree = "<group>"; };
 		A21DBA7915B67863E41EA6CB /* FoldBarTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FoldBarTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B3783DBDBF4A87DBF6D5059D /* ScannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScannerTests.swift; sourceTree = "<group>"; };
+		BB5161F405494A7CEFB1D9BF /* MenuBarItemMetadataResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarItemMetadataResolver.swift; sourceTree = "<group>"; };
 		BC8EB8974C9F69262A89BE0A /* MenuBarCommandDragMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarCommandDragMonitor.swift; sourceTree = "<group>"; };
 		EEFCEA7D523F220F8618C67A /* MenuBarItemScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarItemScanner.swift; sourceTree = "<group>"; };
 		EEFD743830B0B3A49D7B8F00 /* MenuBarArrangement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarArrangement.swift; sourceTree = "<group>"; };
@@ -69,6 +71,7 @@
 				FF704A9F6E40EC2F93ACBCD5 /* IconCapturer.swift */,
 				EEFD743830B0B3A49D7B8F00 /* MenuBarArrangement.swift */,
 				BC8EB8974C9F69262A89BE0A /* MenuBarCommandDragMonitor.swift */,
+				BB5161F405494A7CEFB1D9BF /* MenuBarItemMetadataResolver.swift */,
 				EEFCEA7D523F220F8618C67A /* MenuBarItemScanner.swift */,
 				9033D86C7F9B7C24908A639D /* MenuBarModels.swift */,
 				9D754856CB766382F2A732E7 /* OverflowPanel.swift */,
@@ -193,6 +196,7 @@
 				76652A3466F9F4C3A767115A /* IconCapturer.swift in Sources */,
 				799DB327F6CE948A86E66218 /* MenuBarArrangement.swift in Sources */,
 				8E1D38C34C8541C415837783 /* MenuBarCommandDragMonitor.swift in Sources */,
+				AF8594F1CFD85CA6DC369D00 /* MenuBarItemMetadataResolver.swift in Sources */,
 				E0CC91B025AB5B24A47A1642 /* MenuBarItemScanner.swift in Sources */,
 				DFEF4C40BEF74F7759CBC981 /* MenuBarModels.swift in Sources */,
 				7F3C5D9F80444A51F5688B6A /* OverflowPanel.swift in Sources */,

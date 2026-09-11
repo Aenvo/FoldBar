@@ -51,29 +51,52 @@ struct SafetyTests {
         #expect(!StatusBarController.isInStrip(item, displays: [Self.main]))
     }
 
-    @Test("Promotion lands just to the right of the app trigger")
+    @Test("Promotion targets the slot immediately left of the app trigger")
     func promotionTarget() {
         let item = CGRect(x: 900, y: 0, width: 24, height: 24)
         let trigger = CGRect(x: 1400, y: 1080, width: 24, height: 24)
         let x = StatusBarController.promotionTargetX(
             itemFrame: item,
             toggleFrame: trigger,
-            displays: [Self.main]
+            visibleSegments: [Self.main]
         )
-        #expect(x == 1448)
+        #expect(x == 1398)
     }
 
-    @Test("Promotion succeeds only after the entire item crosses the separator")
+    @Test("Promotion requires the item to cross the separator and touch the trigger's left edge")
     func promotionVerification() {
         let separator = CGRect(x: 900, y: 0, width: 18, height: 24)
+        let trigger = CGRect(x: 956, y: 1080, width: 24, height: 24)
+        let adjacent = CGRect(x: 918, y: 0, width: 38, height: 24)
         #expect(StatusBarController.isOnVisibleSide(
-            CGRect(x: 918, y: 0, width: 38, height: 24),
+            adjacent,
             separatorFrame: separator
+        ))
+        #expect(StatusBarController.isImmediatelyLeftOfToggle(
+            adjacent,
+            toggleFrame: trigger
         ))
         #expect(!StatusBarController.isOnVisibleSide(
             CGRect(x: 880, y: 0, width: 38, height: 24),
             separatorFrame: separator
         ))
+        #expect(!StatusBarController.isImmediatelyLeftOfToggle(
+            CGRect(x: 920, y: 0, width: 24, height: 24),
+            toggleFrame: trigger
+        ))
+    }
+
+    @Test("Promotion fails closed when the trigger has no full slot on its left")
+    func impossiblePromotionTarget() {
+        let item = CGRect(x: 970, y: 0, width: 40, height: 24)
+        let trigger = CGRect(x: 975, y: 1080, width: 24, height: 24)
+        let rightOfNotch = CGRect(x: 948, y: 0, width: 762, height: 40)
+
+        #expect(StatusBarController.promotionTargetX(
+            itemFrame: item,
+            toggleFrame: trigger,
+            visibleSegments: [rightOfNotch]
+        ) == nil)
     }
 
     @Test("Import target puts the entire item on the managed side")

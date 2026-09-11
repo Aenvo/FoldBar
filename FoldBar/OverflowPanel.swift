@@ -546,7 +546,7 @@ private struct OverflowPanelView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(item.window.displayName)
+        .help(item.hoverText)
         .onDrag {
             dragState.beginDragging()
             return NSItemProvider(object: String(item.id) as NSString)
