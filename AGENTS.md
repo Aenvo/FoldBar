@@ -110,6 +110,7 @@ Treat synthetic input and status-item preference recovery as high-risk code.
 - On termination, cancel pending work, close the panel, remove monitors, and expand the separator so third-party items are not left parked off-screen.
 - Preserve the pre-collapse capture cache. Opening the panel must not visibly expand the real menu bar merely to take screenshots.
 - Promotion may temporarily reduce FoldBar's trigger length and then its separator length to zero to free space beside a notch. Do not use `isVisible = false`, because the system can persist that state across launches. Re-resolve the live source after each layout change, send no event unless the full source is inside that display's visible menu-bar segment, and restore both own lengths after every success, failure, cancellation, and quit.
+- Proxy activation uses the same temporary trigger-then-separator width reduction when a managed item would otherwise remain behind the notch. Re-resolve the live frame, forward no click unless the complete frame is inside the display's visible menu-bar segment, preserve item order, and restore both own lengths on every exit.
 - Preserve each captured item's aspect ratio and the one-to-three-slot adaptive layout for text, temperature, battery, and other wide items.
 
 Add focused tests whenever scanner cutoffs, coordinate transforms, promotion geometry, recovery filtering, or grid-span rules change. Interactive behavior still requires a real menu bar; unit tests alone are not acceptance evidence.

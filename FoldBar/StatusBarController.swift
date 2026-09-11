@@ -21,6 +21,7 @@ final class StatusBarController {
     private var cacheCaptureTask: Task<Void, Never>?
     private var importCandidateRefreshTask: Task<Void, Never>?
     private var externalDragCaptureTask: Task<Void, Never>?
+    private var activationTask: Task<Void, Never>?
     private var promotionTask: Task<Void, Never>?
     private var externalDragItemID: CGWindowID?
     private var cachedItems: [CapturedItem] = []
@@ -97,14 +98,16 @@ final class StatusBarController {
     func expandForQuit() {
         initialCollapseTask?.cancel()
         cacheCaptureTask?.cancel()
+        activationTask?.cancel()
+        activationTask = nil
         promotionTask?.cancel()
         promotionTask = nil
         preparingCollapse = false
         disarmAutoCollapse()
         disarmMenuBarImport()
         panel.close()
-        // A promotion can temporarily reduce FoldBar's own status-item lengths
-        // to make room beside a notch. Quitting must restore both immediately.
+        // Promotion and proxy activation can temporarily reduce FoldBar's own
+        // status-item lengths beside a notch. Quitting restores both immediately.
         separatorItem.length = NSStatusItem.variableLength
         toggleItem.length = NSStatusItem.variableLength
         guard isCollapsed else { return }
@@ -246,32 +249,60 @@ final class StatusBarController {
 
     private func activate(_ item: CapturedItem) {
         guard requireAccessibility() else { return }
+        guard activationTask == nil, promotionTask == nil else { return }
         expand()
 
-        Task { @MainActor [weak self] in
+        activationTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            let toggleMinX = toggleItem.button?.window?.frame.minX ?? -.infinity
-            var target: CGRect?
-            for _ in 0..<4 {
-                try? await Task.sleep(for: .milliseconds(140))
-                if let frame = MenuBarItemScanner.frame(of: item.id),
-                   Self.isInMenuBarStrip(frame),
-                   Self.isOnManagedSide(frame, toggleMinX: toggleMinX) {
-                    target = frame
-                    break
-                }
-            }
-            guard let target else {
-                showAlert(
-                    title: "图标暂时无法点击",
-                    message: "macOS 没有把这个真实图标放回可点击区域。菜单栏已保持展开，你可以直接操作它。"
-                )
-                armAutoCollapse()
-                return
-            }
-            EventForwarder.click(at: CGPoint(x: target.midX, y: target.midY))
-            armAutoCollapse()
+            await self.performActivation(item)
+            self.activationTask = nil
         }
+    }
+
+    private func performActivation(_ item: CapturedItem) async {
+        let originalToggleLength = toggleItem.length
+        let originalSeparatorLength = separatorItem.length
+        defer {
+            separatorItem.length = originalSeparatorLength
+            toggleItem.length = originalToggleLength
+        }
+
+        // A far-left managed item can remain partly behind the notch even after
+        // expanding the separator. Temporarily reclaim our trigger's width,
+        // then the separator's width if needed, before forwarding any click.
+        // This preserves the real item order and mirrors the space-making path
+        // used by promotion without performing a Command-drag.
+        let visibleSegments = Self.activeVisibleMenuBarSegments()
+        toggleItem.length = 0
+        var frame = await waitForStableMenuBarFrame(of: item.id)
+
+        if frame.flatMap({
+            Self.activationPoint(itemFrame: $0, visibleSegments: visibleSegments)
+        }) == nil {
+            separatorItem.length = 0
+            frame = await waitForStableMenuBarFrame(of: item.id)
+        }
+
+        guard !Task.isCancelled else { return }
+        guard let frame,
+              let point = Self.activationPoint(
+                itemFrame: frame,
+                visibleSegments: visibleSegments
+              ) else {
+            showAlert(
+                title: "图标暂时无法点击",
+                message: "为刘海腾出空间后，这个真实图标仍未完整进入可点击区域。菜单栏已保持展开，请直接操作它。"
+            )
+            armAutoCollapse()
+            return
+        }
+
+        EventForwarder.click(at: point)
+        // Let the target app establish its menu or popover before restoring
+        // FoldBar's own widths and reflowing the status bar again.
+        guard (try? await Task.sleep(for: .milliseconds(140))) != nil,
+              !Task.isCancelled else { return }
+        armAutoCollapse()
     }
 
     private func promoteToMenuBar(_ item: CapturedItem) {
@@ -541,8 +572,14 @@ final class StatusBarController {
         }
     }
 
-    static func isOnManagedSide(_ frame: CGRect, toggleMinX: CGFloat) -> Bool {
-        frame.maxX <= toggleMinX
+    static func activationPoint(
+        itemFrame: CGRect,
+        visibleSegments: [CGRect]
+    ) -> CGPoint? {
+        guard isInVisibleMenuBarSegment(itemFrame, segments: visibleSegments) else {
+            return nil
+        }
+        return CGPoint(x: itemFrame.midX, y: itemFrame.midY)
     }
 
     static func isOnVisibleSide(_ frame: CGRect, separatorFrame: CGRect) -> Bool {

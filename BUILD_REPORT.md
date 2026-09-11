@@ -5,7 +5,7 @@ Verified locally on 2026-09-11 with Xcode 26.6 (17F113), Swift 6.3.3, and the ma
 ## Results
 
 - Debug app-hosted test build: passed.
-- Swift Testing: 29 tests passed.
+- Swift Testing: 30 tests passed.
 - Release build: passed with no source compiler warnings.
 - Release binary: universal `arm64` + `x86_64`.
 - Deployment target: macOS 14.0.
@@ -81,6 +81,12 @@ FoldBar resolves each public `AXMenuExtra` help, description, or owning-app name
 on a utility task and matches it to the corresponding status window by center
 position. Empty or generic Control Center metadata falls back to a neutral menu
 bar item label.
+Proxy activation now requires the complete live status window to fit inside the
+display's visible menu-bar segment. It temporarily reduces FoldBar's trigger
+width, and then its separator width only when necessary, so far-left managed
+items can clear the notch without changing their saved order. Every exit path
+restores both widths; a target that still cannot become fully clickable receives
+no synthetic event and leaves the bar expanded for manual interaction.
 
 ## Packaged artifact
 
@@ -106,6 +112,7 @@ The packaged app is signed with the local Apple Development certificate so its p
 - Promotion target geometry for insertion immediately left of the FoldBar trigger.
 - Post-drag visible-side and trigger-adjacency verification before re-collapsing.
 - Accessibility hover-label priority, generic-host rejection, and status-window matching.
+- Notch-overlap rejection for proxy-click forwarding.
 - Command-drag source-window selection for menu-bar-to-panel import.
 - Safe rejection of negative and out-of-range AppKit window numbers.
 - Own-status-item frame fallback when no usable Core Graphics window ID exists.
@@ -139,11 +146,21 @@ For the current arrow-left and hover-label candidate, a read-only live metadata
 probe matched all nine currently managed status windows to distinct owning-item
 information (CodexSquad, Bob, PixPin, Nutstore, ChatGPT, WeChat Input, Notion,
 Clash Verge, and Eagle). The probe did not move any real menu-bar item. The
-29-test suite and universal Release build pass; final drag placement remains a
+30-test suite and universal Release build pass; final drag placement remains a
 real-menu-bar acceptance item because exercising it changes the user's status
 item order.
+
+The later proxy-click regression was reproduced against the preceding installed
+build: after expansion, the last CodexSquad item occupied Quartz `x=928...962`
+while the display's visible right-hand menu-bar segment began at `x=948`. The
+old full-display check therefore authorized a click at the notch edge, matching
+the reported no-panel behavior. With the current candidate installed, the same
+last-cell activation temporarily moved the item fully into the interactive
+segment and produced CodexSquad's on-screen `430 x 494` panel. FoldBar then
+restored its own widths, closed the external panel during cleanup, and returned
+to the collapsed state without a Command-drag or item-order change.
 
 The verified universal candidate is installed at `/Applications/FoldBar.app`
 with bundle identifier `local.foldbar.app`, Apple Development team
 `42MUMXKY79`, and executable SHA-256
-`d38be823a71f05572fd187571dd87fb946e070470353fe82d41815dca2a06754`.
+`6779f292d2fc731bda98e6ac5be8c1eea8544e82a4c975fe224e02cdc71733a1`.

@@ -45,6 +45,20 @@ struct SafetyTests {
         ))
     }
 
+    @Test("Proxy clicks reject status items that still overlap the notch")
+    func proxyClickRequiresVisibleSegment() {
+        let rightOfNotch = CGRect(x: 948, y: 0, width: 762, height: 40)
+
+        #expect(StatusBarController.activationPoint(
+            itemFrame: CGRect(x: 928, y: 0, width: 34, height: 34),
+            visibleSegments: [rightOfNotch]
+        ) == nil)
+        #expect(StatusBarController.activationPoint(
+            itemFrame: CGRect(x: 962, y: 0, width: 38, height: 34),
+            visibleSegments: [rightOfNotch]
+        ) == CGPoint(x: 981, y: 17))
+    }
+
     @Test("A same-layer window below the menu bar is rejected")
     func belowStrip() {
         let item = CGRect(x: 800, y: 400, width: 24, height: 24)
