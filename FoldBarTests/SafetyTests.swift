@@ -51,6 +51,111 @@ struct SafetyTests {
             separatorFrame: separator
         ))
     }
+
+    @Test("Import target puts the entire item on the managed side")
+    func importTarget() {
+        let item = CGRect(x: 1200, y: 0, width: 24, height: 24)
+        let separator = CGRect(x: 900, y: 0, width: 18, height: 24)
+        let targetX = StatusBarController.importTargetX(
+            itemFrame: item,
+            separatorFrame: separator,
+            displays: [Self.main]
+        )
+        #expect(targetX == 884)
+        let movedFrame = CGRect(
+            x: (targetX ?? 0) - item.width / 2,
+            y: 0,
+            width: item.width,
+            height: item.height
+        )
+        #expect(StatusBarController.isOnHiddenSide(movedFrame, separatorFrame: separator))
+
+        let wideItem = CGRect(x: 1100, y: 0, width: 220, height: 24)
+        let wideTargetX = StatusBarController.importTargetX(
+            itemFrame: wideItem,
+            separatorFrame: separator,
+            displays: [Self.main]
+        )
+        #expect(wideTargetX == 786)
+        #expect((separator.minX - ((wideTargetX ?? 0) + wideItem.width / 2)) == 4)
+    }
+
+    @Test("Import fails closed when there is no room left of the separator")
+    func impossibleImportTarget() {
+        let item = CGRect(x: 20, y: 0, width: 40, height: 24)
+        let separator = CGRect(x: 30, y: 0, width: 18, height: 24)
+        #expect(StatusBarController.importTargetX(
+            itemFrame: item,
+            separatorFrame: separator,
+            displays: [Self.main]
+        ) == nil)
+    }
+
+    @Test("Command-drag source resolution chooses the tightest matching window")
+    func commandDragSourceResolution() {
+        let background = MenuBarItemWindow(
+            id: 1,
+            frame: CGRect(x: 0, y: 0, width: 1710, height: 24),
+            ownerName: "Window Server",
+            windowName: ""
+        )
+        let item = MenuBarItemWindow(
+            id: 2,
+            frame: CGRect(x: 1300, y: 0, width: 28, height: 24),
+            ownerName: "Example",
+            windowName: "Item-0"
+        )
+        #expect(MenuBarCommandDragMonitor.sourceWindow(
+            at: CGPoint(x: 1310, y: 12),
+            among: [background, item]
+        )?.id == item.id)
+        #expect(MenuBarCommandDragMonitor.sourceWindow(
+            at: CGPoint(x: 900, y: 400),
+            among: [item]
+        ) == nil)
+    }
+
+    @Test("Out-of-range AppKit window numbers are ignored safely")
+    func safeWindowIDConversion() {
+        let ids = StatusBarController.validWindowIDs([
+            -1,
+            0,
+            42,
+            Int(UInt32.max),
+            Int(UInt32.max) + 1
+        ])
+
+        #expect(ids == Set([CGWindowID(42), CGWindowID.max]))
+    }
+
+    @Test("Own status items are excluded when AppKit has no usable window ID")
+    func ownStatusItemFrameFallback() {
+        let candidate = CGRect(x: 1450, y: 0, width: 28, height: 24)
+
+        #expect(StatusBarController.matchesOwnStatusItem(
+            candidate,
+            ownFrames: [CGRect(x: 1450.5, y: 1083, width: 27.5, height: 24)]
+        ))
+        #expect(!StatusBarController.matchesOwnStatusItem(
+            candidate,
+            ownFrames: [CGRect(x: 1400, y: 1083, width: 28, height: 24)]
+        ))
+    }
+
+    @Test("Panel and Quartz coordinate conversion round trips")
+    func panelCoordinateConversion() {
+        let appKitFrame = CGRect(x: 1300, y: 800, width: 280, height: 220)
+        let quartzFrame = MenuBarCommandDragMonitor.quartzFrame(
+            fromAppKit: appKitFrame,
+            mainDisplayBounds: Self.main
+        )
+        #expect(quartzFrame == CGRect(x: 1300, y: 87, width: 280, height: 220))
+        let appKitPoint = MenuBarCommandDragMonitor.appKitPoint(
+            fromQuartz: CGPoint(x: 1400, y: 100),
+            mainDisplayBounds: Self.main
+        )
+        #expect(appKitPoint == CGPoint(x: 1400, y: 1007))
+    }
 }
 
 @Suite("Panel appearance")

@@ -19,10 +19,28 @@ final class StatusBarController {
     private var autoCollapseTask: Task<Void, Never>?
     private var autoCollapseMonitor: Any?
     private var cacheCaptureTask: Task<Void, Never>?
+    private var importCandidateRefreshTask: Task<Void, Never>?
+    private var externalDragCaptureTask: Task<Void, Never>?
+    private var externalDragItemID: CGWindowID?
     private var cachedItems: [CapturedItem] = []
     private var preparingCollapse = false
     private var permissionFlowActive = false
     private(set) var isCollapsed = false
+
+    private lazy var menuBarImportMonitor = MenuBarCommandDragMonitor(
+        onBegin: { [weak self] item, point in
+            self?.beginExternalDrag(item, at: point)
+        },
+        onUpdate: { [weak self] point, isInsidePanel in
+            self?.panel.updateExternalDrag(
+                atQuartzPoint: point,
+                isInsidePanel: isInsidePanel
+            )
+        },
+        onEnd: { [weak self] item, point, isInsidePanel in
+            self?.finishExternalDrag(item, at: point, accepted: isInsidePanel)
+        }
+    )
 
     init() {
         if let saved = MenuBarArrangement.saved() {
@@ -80,6 +98,7 @@ final class StatusBarController {
         cacheCaptureTask?.cancel()
         preparingCollapse = false
         disarmAutoCollapse()
+        disarmMenuBarImport()
         panel.close()
         guard isCollapsed else { return }
         separatorItem.length = NSStatusItem.variableLength
@@ -211,8 +230,10 @@ final class StatusBarController {
             onClick: { [weak self] item in self?.activate(item) },
             onPromote: { [weak self] item in self?.promoteToMenuBar(item) },
             onExpand: { [weak self] in self?.expand() },
-            onSettings: { [weak self] in self?.settingsPanel.show() }
+            onSettings: { [weak self] in self?.settingsPanel.show() },
+            onDismiss: { [weak self] in self?.disarmMenuBarImport() }
         )
+        armMenuBarImport()
     }
 
     private func activate(_ item: CapturedItem) {
@@ -290,6 +311,161 @@ final class StatusBarController {
         }
     }
 
+    // MARK: - Import from the real menu bar
+
+    private func armMenuBarImport() {
+        disarmMenuBarImport()
+        guard panel.isVisible,
+              EventForwarder.isTrusted(),
+              let panelFrame = panel.frame else { return }
+
+        let mainDisplayBounds = CGDisplayBounds(CGMainDisplayID())
+        let targetFrame = MenuBarCommandDragMonitor.quartzFrame(
+            fromAppKit: panelFrame,
+            mainDisplayBounds: mainDisplayBounds
+        )
+        guard menuBarImportMonitor.start(
+            candidates: currentImportCandidates(),
+            targetFrame: targetFrame
+        ) else { return }
+
+        importCandidateRefreshTask = Task { @MainActor [weak self] in
+            while let self, self.panel.isVisible, self.menuBarImportMonitor.isRunning {
+                guard (try? await Task.sleep(for: .milliseconds(250))) != nil else { return }
+                guard self.panel.isVisible else { return }
+                self.menuBarImportMonitor.updateCandidates(self.currentImportCandidates())
+            }
+        }
+    }
+
+    private func disarmMenuBarImport() {
+        importCandidateRefreshTask?.cancel()
+        importCandidateRefreshTask = nil
+        externalDragCaptureTask?.cancel()
+        externalDragCaptureTask = nil
+        externalDragItemID = nil
+        menuBarImportMonitor.stop()
+    }
+
+    private func currentImportCandidates() -> [MenuBarItemWindow] {
+        guard isCollapsed,
+              let separatorFrame = separatorItem.button?.window?.frame else { return [] }
+        let ownWindows = [
+            toggleItem.button?.window,
+            separatorItem.button?.window
+        ].compactMap { $0 }
+        let ownWindowIDs = Self.validWindowIDs(ownWindows.map(\.windowNumber))
+        let ownWindowFrames = ownWindows.map(\.frame)
+
+        return MenuBarItemScanner.statusWindows().filter { window in
+            !ownWindowIDs.contains(window.id)
+                && !Self.matchesOwnStatusItem(window.frame, ownFrames: ownWindowFrames)
+                && window.frame.width < 500
+                && Self.isInMenuBarStrip(window.frame)
+                && Self.isOnVisibleSide(window.frame, separatorFrame: separatorFrame)
+        }
+    }
+
+    static func validWindowIDs(_ windowNumbers: [Int]) -> Set<CGWindowID> {
+        Set(windowNumbers.compactMap { number in
+            guard number > 0 else { return nil }
+            return CGWindowID(exactly: number)
+        })
+    }
+
+    static func matchesOwnStatusItem(_ candidate: CGRect, ownFrames: [CGRect]) -> Bool {
+        ownFrames.contains { ownFrame in
+            abs(candidate.minX - ownFrame.minX) <= 1
+                && abs(candidate.width - ownFrame.width) <= 1
+        }
+    }
+
+    private func beginExternalDrag(_ item: MenuBarItemWindow, at point: CGPoint) {
+        externalDragItemID = item.id
+        panel.beginExternalDrag(image: nil, atQuartzPoint: point)
+        externalDragCaptureTask?.cancel()
+        externalDragCaptureTask = Task { @MainActor [weak self] in
+            let captured = await IconCapturer.capture([item])
+            guard let self,
+                  !Task.isCancelled,
+                  self.externalDragItemID == item.id,
+                  let image = captured.first?.image else { return }
+            self.panel.updateExternalDragImage(image)
+        }
+    }
+
+    private func finishExternalDrag(
+        _ item: MenuBarItemWindow,
+        at point: CGPoint,
+        accepted: Bool
+    ) {
+        guard externalDragItemID == item.id else { return }
+        externalDragCaptureTask?.cancel()
+        externalDragCaptureTask = nil
+        externalDragItemID = nil
+        panel.updateExternalDrag(atQuartzPoint: point, isInsidePanel: accepted)
+        panel.endExternalDrag()
+        guard accepted else { return }
+
+        // Defer teardown until the event-tap callback has returned the consumed
+        // mouse-up. Invalidating a tap from inside its own callback is fragile.
+        Task { @MainActor [weak self] in
+            await Task.yield()
+            guard let self else { return }
+            self.panel.close()
+            self.importIntoFoldBar(item)
+        }
+    }
+
+    private func importIntoFoldBar(_ item: MenuBarItemWindow) {
+        guard requireAccessibility() else { return }
+        expand()
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            var sourceFrame: CGRect?
+            for _ in 0..<4 {
+                try? await Task.sleep(for: .milliseconds(140))
+                if let found = MenuBarItemScanner.frame(of: item.id),
+                   Self.isInMenuBarStrip(found) {
+                    sourceFrame = found
+                    break
+                }
+            }
+
+            guard let sourceFrame,
+                  let separatorFrame = separatorItem.button?.window?.frame,
+                  Self.isOnVisibleSide(sourceFrame, separatorFrame: separatorFrame),
+                  let targetX = Self.importTargetX(
+                    itemFrame: sourceFrame,
+                    separatorFrame: separatorFrame,
+                    displays: Self.activeDisplayBounds()
+                  )
+            else {
+                showAlert(
+                    title: "无法收纳这个图标",
+                    message: "真实图标或 FoldBar 分隔符没有出现在可安全拖动的菜单栏区域。菜单栏已保持展开，你可以手动按住 ⌘ 调整。"
+                )
+                return
+            }
+
+            let posted = await EventForwarder.commandDrag(
+                from: CGPoint(x: sourceFrame.midX, y: sourceFrame.midY),
+                to: CGPoint(x: targetX, y: sourceFrame.midY)
+            )
+            guard posted, await self.waitForImport(of: item.id) else {
+                showAlert(
+                    title: "图标没有收纳成功",
+                    message: "macOS 没有接受这次自动拖动。菜单栏已保持展开，请按住 ⌘ 将这个真实图标拖到 FoldBar 分隔符左侧。"
+                )
+                return
+            }
+            // Re-capture the newly managed item before the enlarged separator
+            // parks the managed side off-screen again.
+            collapse()
+        }
+    }
+
     // MARK: - Event safety
 
     static func isInStrip(_ frame: CGRect, displays: [CGRect]) -> Bool {
@@ -309,6 +485,32 @@ final class StatusBarController {
 
     static func isOnVisibleSide(_ frame: CGRect, separatorFrame: CGRect) -> Bool {
         frame.minX >= separatorFrame.maxX - 1
+    }
+
+    static func isOnHiddenSide(_ frame: CGRect, separatorFrame: CGRect) -> Bool {
+        frame.maxX <= separatorFrame.minX + 1
+    }
+
+    static func importTargetX(
+        itemFrame: CGRect,
+        separatorFrame: CGRect,
+        displays: [CGRect]
+    ) -> CGFloat? {
+        guard let display = displays.first(where: {
+            $0.contains(CGPoint(x: itemFrame.midX, y: itemFrame.midY))
+        }) else { return nil }
+
+        let lower = display.minX + itemFrame.width / 2
+        let upper = min(
+            display.maxX - itemFrame.width / 2,
+            separatorFrame.minX - itemFrame.width / 2 - 2
+        )
+        guard lower <= upper else { return nil }
+
+        // Move the pointer far enough past the separator that the entire item,
+        // not just its center, lands on FoldBar's managed side.
+        let proposed = separatorFrame.minX - itemFrame.width / 2 - 4
+        return min(max(proposed, lower), upper)
     }
 
     static func promotionTargetX(
@@ -348,6 +550,19 @@ final class StatusBarController {
                   let separatorFrame = separatorItem.button?.window?.frame,
                   Self.isInMenuBarStrip(frame) else { continue }
             if Self.isOnVisibleSide(frame, separatorFrame: separatorFrame) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func waitForImport(of id: CGWindowID) async -> Bool {
+        for _ in 0..<12 {
+            guard (try? await Task.sleep(for: .milliseconds(120))) != nil else { return false }
+            guard let frame = MenuBarItemScanner.frame(of: id),
+                  let separatorFrame = separatorItem.button?.window?.frame,
+                  Self.isInMenuBarStrip(frame) else { continue }
+            if Self.isOnHiddenSide(frame, separatorFrame: separatorFrame) {
                 return true
             }
         }
@@ -492,7 +707,7 @@ final class StatusBarController {
         if screenGranted, accessibilityGranted {
             showAlert(
                 title: "权限已完整授权",
-                message: "屏幕录制用于显示图标；辅助功能只在你点击或拖动代理图标时使用。"
+                message: "屏幕录制用于显示图标；辅助功能只用于你主动发起的点击、收纳或拖动操作。"
             )
             return
         }

@@ -9,8 +9,91 @@ private final class FirstMouseHostingView<Content: View>: NSHostingView<Content>
 }
 
 @MainActor
+private final class ExternalDragPreviewPanel {
+    private var panel: NSPanel?
+    private var imageView: NSImageView?
+    private var lastPoint = CGPoint.zero
+
+    func show(image: NSImage?, atQuartzPoint point: CGPoint) {
+        close()
+        lastPoint = point
+
+        let previewImage = image
+            ?? NSImage(systemSymbolName: "menubar.rectangle", accessibilityDescription: nil)
+        let ratio = max(0.8, min(3, (previewImage?.size.width ?? 24) / max(1, previewImage?.size.height ?? 24)))
+        let size = NSSize(width: max(46, min(96, 14 + 28 * ratio)), height: 46)
+        let panel = NSPanel(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        let background = NSVisualEffectView(frame: NSRect(origin: .zero, size: size))
+        background.material = .hudWindow
+        background.blendingMode = .behindWindow
+        background.state = .active
+        background.wantsLayer = true
+        background.layer?.cornerRadius = 10
+        background.layer?.borderWidth = 1
+        background.layer?.borderColor = NSColor.systemBlue.withAlphaComponent(0.72).cgColor
+
+        let imageView = NSImageView(frame: background.bounds.insetBy(dx: 7, dy: 7))
+        imageView.image = previewImage
+        imageView.imageScaling = .scaleProportionallyUpOrDown
+        background.addSubview(imageView)
+
+        panel.contentView = background
+        panel.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.ignoresMouseEvents = true
+        panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
+        panel.isReleasedWhenClosed = false
+        self.panel = panel
+        self.imageView = imageView
+        move(toQuartzPoint: point)
+        panel.orderFrontRegardless()
+    }
+
+    func update(image: NSImage) {
+        show(image: image, atQuartzPoint: lastPoint)
+    }
+
+    func move(toQuartzPoint point: CGPoint) {
+        lastPoint = point
+        guard let panel else { return }
+        let mainBounds = CGDisplayBounds(CGMainDisplayID())
+        let appKitPoint = MenuBarCommandDragMonitor.appKitPoint(
+            fromQuartz: point,
+            mainDisplayBounds: mainBounds
+        )
+        let proposed = NSPoint(
+            x: appKitPoint.x + 12,
+            y: appKitPoint.y - panel.frame.height - 12
+        )
+        let screen = NSScreen.screens.first { $0.frame.contains(appKitPoint) }
+        let origin = screen.map { screen in
+            NSPoint(
+                x: min(max(proposed.x, screen.frame.minX), screen.frame.maxX - panel.frame.width),
+                y: min(max(proposed.y, screen.frame.minY), screen.frame.maxY - panel.frame.height)
+            )
+        } ?? proposed
+        panel.setFrameOrigin(origin)
+    }
+
+    func close() {
+        panel?.orderOut(nil)
+        panel = nil
+        imageView = nil
+    }
+}
+
+@MainActor
 private final class OverflowDragState: ObservableObject {
     @Published private(set) var isDraggingItem = false
+    @Published private(set) var isDraggingExternalItem = false
+    @Published private(set) var isExternalItemInsidePanel = false
     private var releaseTask: Task<Void, Never>?
 
     func beginDragging() {
@@ -28,15 +111,40 @@ private final class OverflowDragState: ObservableObject {
             self?.releaseTask = nil
         }
     }
+
+    func beginExternalDragging() {
+        isDraggingExternalItem = true
+        isExternalItemInsidePanel = false
+    }
+
+    func updateExternalDragging(isInsidePanel: Bool) {
+        isExternalItemInsidePanel = isInsidePanel
+    }
+
+    func endExternalDragging() {
+        isDraggingExternalItem = false
+        isExternalItemInsidePanel = false
+    }
+
+    func cancelAllDragging() {
+        releaseTask?.cancel()
+        releaseTask = nil
+        isDraggingItem = false
+        endExternalDragging()
+    }
 }
 
 @MainActor
 final class OverflowPanel {
     private var panel: NSPanel?
     private var monitors: [Any] = []
+    private var dragState: OverflowDragState?
+    private let externalPreview = ExternalDragPreviewPanel()
+    private var onDismiss: (@MainActor () -> Void)?
     private static let edgeInset: CGFloat = 6
 
     var isVisible: Bool { panel?.isVisible ?? false }
+    var frame: CGRect? { panel?.frame }
 
     func show(
         items: [CapturedItem],
@@ -44,11 +152,14 @@ final class OverflowPanel {
         onClick: @escaping @MainActor (CapturedItem) -> Void,
         onPromote: @escaping @MainActor (CapturedItem) -> Void,
         onExpand: @escaping @MainActor () -> Void,
-        onSettings: @escaping @MainActor () -> Void
+        onSettings: @escaping @MainActor () -> Void,
+        onDismiss: @escaping @MainActor () -> Void
     ) {
         close()
+        self.onDismiss = onDismiss
 
         let dragState = OverflowDragState()
+        self.dragState = dragState
         let content = OverflowPanelView(
             items: items,
             dragState: dragState,
@@ -111,9 +222,11 @@ final class OverflowPanel {
 
         if let monitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown],
-            handler: { [weak self] _ in
+            handler: { [weak self] event in
+                let isCommandClick = event.modifierFlags.contains(.command)
                 MainActor.assumeIsolated {
                     guard let self, let panel = self.panel else { return }
+                    if isCommandClick { return }
                     if panel.frame.contains(NSEvent.mouseLocation) { return }
                     self.close()
                 }
@@ -142,8 +255,35 @@ final class OverflowPanel {
     func close() {
         monitors.forEach(NSEvent.removeMonitor)
         monitors.removeAll()
+        dragState?.cancelAllDragging()
+        dragState = nil
+        externalPreview.close()
         panel?.orderOut(nil)
         panel = nil
+        let callback = onDismiss
+        onDismiss = nil
+        callback?()
+    }
+
+    func beginExternalDrag(image: NSImage?, atQuartzPoint point: CGPoint) {
+        guard isVisible else { return }
+        dragState?.beginExternalDragging()
+        externalPreview.show(image: image, atQuartzPoint: point)
+    }
+
+    func updateExternalDrag(atQuartzPoint point: CGPoint, isInsidePanel: Bool) {
+        guard isVisible else { return }
+        dragState?.updateExternalDragging(isInsidePanel: isInsidePanel)
+        externalPreview.move(toQuartzPoint: point)
+    }
+
+    func updateExternalDragImage(_ image: NSImage) {
+        externalPreview.update(image: image)
+    }
+
+    func endExternalDrag() {
+        dragState?.endExternalDragging()
+        externalPreview.close()
     }
 }
 
@@ -260,11 +400,12 @@ private struct OverflowPanelView: View {
     }
 
     private var isDropZoneActive: Bool {
-        dragState.isDraggingItem || isPromoteTargeted
+        dragState.isDraggingItem || isPromoteTargeted || dragState.isDraggingExternalItem
     }
 
     private var dropZoneBlueOpacity: Double {
-        isPromoteTargeted ? 0.24 : (dragState.isDraggingItem ? 0.12 : 0)
+        if dragState.isExternalItemInsidePanel || isPromoteTargeted { return 0.24 }
+        return isDropZoneActive ? 0.12 : 0
     }
 
     var body: some View {
@@ -365,8 +506,8 @@ private struct OverflowPanelView: View {
 
     private var promoteDropZone: some View {
         HStack(spacing: 7) {
-            Image(systemName: "menubar.arrow.up.rectangle")
-            Text("拖到这里：在菜单栏中保持可见")
+            Image(systemName: dragState.isDraggingExternalItem ? "tray.and.arrow.down" : "menubar.arrow.up.rectangle")
+            Text(dropZoneTitle)
                 .font(.caption)
         }
         .foregroundStyle(.secondary)
@@ -388,6 +529,15 @@ private struct OverflowPanelView: View {
             onPromote(item)
             return true
         } isTargeted: { isPromoteTargeted = $0 }
+    }
+
+    private var dropZoneTitle: String {
+        guard dragState.isDraggingExternalItem else {
+            return "拖到这里：在菜单栏中保持可见"
+        }
+        return dragState.isExternalItemInsidePanel
+            ? "松手：收进 FoldBar"
+            : "拖进面板：收进 FoldBar"
     }
 
     private func iconCell(_ entry: OverflowGridCell) -> some View {

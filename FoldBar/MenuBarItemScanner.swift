@@ -71,7 +71,7 @@ enum MenuBarItemScanner {
         Set(statusWindows().map { "\($0.id)@\(Int($0.frame.minX.rounded()))" })
     }
 
-    private static func statusWindows() -> [MenuBarItemWindow] {
+    static func statusWindows() -> [MenuBarItemWindow] {
         guard let list = CGWindowListCopyWindowInfo(.optionAll, kCGNullWindowID) as? [[String: Any]] else {
             return []
         }

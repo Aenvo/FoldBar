@@ -1,11 +1,11 @@
 # FoldBar build report
 
-Verified locally on 2026-09-10 with Xcode 26.6 (17F113), Swift 6.3.3, and the macOS 26.5 SDK.
+Verified locally on 2026-09-11 with Xcode 26.6 (17F113), Swift 6.3.3, and the macOS 26.5 SDK.
 
 ## Results
 
 - Debug app-hosted test build: passed.
-- Swift Testing: 16 tests passed.
+- Swift Testing: 22 tests passed.
 - Release build: passed with no source compiler warnings.
 - Release binary: universal `arm64` + `x86_64`.
 - Deployment target: macOS 14.0.
@@ -45,6 +45,19 @@ overlay that reduces panel transparency.
 Interactive cross-app promotion still requires confirmation on the real menu
 bar; a rejected synthetic drag now leaves the bar expanded and reports the
 manual fallback instead of appearing to succeed.
+The `feat/panel-command-drag-import` candidate adds a panel-scoped active event
+tap for user-initiated Command-drags that begin on a validated visible status
+item. The original downward mouse sequence is consumed, a screenshot proxy
+follows the pointer, and a drop inside the panel starts a second, menu-bar-only
+Command-drag to the managed side. Source identity, panel coordinate conversion,
+target geometry, and post-drag placement all fail closed. Cancelling outside the
+panel performs no synthetic move. The event tap and proxy are torn down whenever
+the panel closes.
+The same candidate now rejects AppKit window numbers that cannot be represented
+as `CGWindowID` values instead of trapping during panel opening. When an own
+status item has no usable Core Graphics window ID, its horizontal frame is used
+as a fallback exclusion so FoldBar cannot select its own trigger as an import
+source.
 
 ## Packaged artifact
 
@@ -69,8 +82,14 @@ The packaged app is signed with the local Apple Development certificate so its p
 - Negative X coordinates for displays left of the primary display.
 - Promotion target geometry for drag-to-visible.
 - Post-drag visible-side verification before re-collapsing.
+- Command-drag source-window selection for menu-bar-to-panel import.
+- Safe rejection of negative and out-of-range AppKit window numbers.
+- Own-status-item frame fallback when no usable Core Graphics window ID exists.
+- AppKit-to-Quartz panel coordinate conversion.
+- Managed-side import target geometry and impossible-target rejection.
+- Post-drag managed-side verification before re-collapsing.
 - Defensive position snapshot merge and restore filtering.
 - Expanded-section discovery used for flash-free pre-collapse caching.
 - Adaptive one-, two-, and three-column spans for wide status items.
 
-The earlier 0.1.0 build was interactively tested and exposed the permission repetition, visible capture flash, and aspect-ratio defects addressed in 0.2.0. The new signed `fix/promotion-drag` candidate still requires an interactive acceptance pass for Screen Recording, Accessibility, click forwarding, and cross-app Command-drag behavior.
+The earlier 0.1.0 build was interactively tested and exposed the permission repetition, visible capture flash, and aspect-ratio defects addressed in 0.2.0. The signed `feat/panel-command-drag-import` candidate is installed and launches from `/Applications/FoldBar.app`. After the window-ID fix, the installed trigger was exercised through System Events: the panel opened, remained alive across multiple candidate-refresh intervals, closed normally, and produced no new crash report. On 2026-09-11, the user then reported that the installed real-menu-bar Command-drag import acceptance path succeeded. The outside-panel cancellation path was not reported separately and remains pending. Screen Recording, Accessibility, click forwarding, and other cross-app synthetic Command-drag behavior also remain interaction-dependent.

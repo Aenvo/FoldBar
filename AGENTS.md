@@ -10,7 +10,7 @@ Preserve the product model:
 - Collapsing enlarges the separator so status items on its managed side are parked off-screen by macOS.
 - The overflow panel shows in-memory screenshots of the real status-item windows. It does not take ownership of another app's `NSStatusItem`.
 - Clicking a proxy temporarily expands the real menu bar and forwards a click to the validated real window.
-- Dragging a proxy to “keep visible” forwards a validated Command-drag. Moving an item from the real menu bar into the managed section remains a manual Command-drag because macOS exposes no public cross-app ordering API.
+- Dragging a proxy to “keep visible” forwards a validated Command-drag. While the panel is open, a Command-drag that starts on a validated visible status-item window is intercepted before the real icon can leave the menu bar; FoldBar shows a proxy and, after a drop inside the panel, performs a second validated Command-drag entirely within the menu-bar strip to move the real item into the managed section.
 
 Do not replace this with Ice private-CGS behavior or claim that the panel contains real third-party views.
 
@@ -89,7 +89,7 @@ Screen Recording and Accessibility are separate macOS TCC grants. FoldBar may pr
 
 - Ask automatically only once; later interactions should direct the user to System Settings instead of repeatedly prompting.
 - Screen Recording is used only for individual menu-bar window images.
-- Accessibility is used only after a user-initiated proxy click or drag.
+- Accessibility is used only while the panel is open for a user-initiated Command-drag import, or after a user-initiated proxy click or drag.
 - A newly granted Screen Recording permission may require relaunching the app before ScreenCaptureKit returns usable content.
 
 Do not change `PRODUCT_BUNDLE_IDENTIFIER`, the signing team, or signing style casually. TCC considers the bundle's designated requirement, so identity churn can cause duplicate privacy entries and repeated authorization. Do not run `tccutil reset`, edit TCC databases, or remove user preferences as routine testing; those actions require an explicit cleanup request and exact before/after verification.
@@ -101,6 +101,7 @@ Treat synthetic input and status-item preference recovery as high-risk code.
 - Keep geometry checks fail-closed. A forwarded event must remain inside a known display's menu-bar strip and inside the intended managed side.
 - Preserve support for negative global X coordinates on displays left of the primary display.
 - Resolve the live window frame again before clicking or dragging; cached screenshots do not prove that a target is still at the same coordinate.
+- Keep the menu-bar import event tap scoped to the visible panel. Consume input only after a Command mouse-down hits a recently scanned, explicitly allowed status-item frame; pass every other event through unchanged and tear down the tap when the panel closes.
 - If a real item cannot be resolved safely, leave the menu bar expanded and ask the user to interact manually.
 - Never synthesize events into ordinary application windows or arbitrary screen coordinates.
 - Snapshot only sane `NSStatusItem Preferred Position` values, never restore paths outside the user's own preference domains, and never restore FoldBar's own domain through the generic recovery loop.
@@ -121,7 +122,7 @@ For runtime-affecting changes, verify on a notch-equipped Mac with several third
 5. Opening the grid has no expand/capture flash.
 6. Square and wide icons keep correct proportions and occupy appropriate grid spans.
 7. Proxy click expands, resolves the current real frame, clicks the intended item, and safely collapses afterward.
-8. Drag-to-visible uses Command-drag only within the menu-bar strip; manual arrange mode remains available as the fallback.
+8. Drag-to-visible and panel import synthesize Command-drag only within the menu-bar strip. An import cancelled outside the panel leaves the item untouched; failed post-drag verification leaves the bar expanded with a manual fallback.
 9. Escape and outside clicks close the panel, and quitting restores the visible menu bar.
 10. Multi-display layouts, including a display left of the primary display, do not receive out-of-bounds events.
 
