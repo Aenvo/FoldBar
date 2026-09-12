@@ -8,19 +8,83 @@ private final class FirstMouseHostingView<Content: View>: NSHostingView<Content>
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
+private extension PanelAppearance {
+    var renderedForCurrentOS: PanelAppearance {
+        guard self == .liquidGlass else { return self }
+        if #available(macOS 26.0, *) {
+            return .liquidGlass
+        }
+        return .currentMaterial
+    }
+}
+
+/// Shared by the system drag preview and the proxy that follows a drag from a
+/// real menu-bar item. Keeping one SwiftUI surface prevents their tint, border,
+/// corner radius, icon sizing, and appearance fallback from drifting apart.
+private struct IconDragPreviewSurface: View {
+    let image: NSImage
+    let width: CGFloat
+    let appearance: PanelAppearance
+
+    private let height: CGFloat = 46
+    private let iconMaxHeight: CGFloat = 28
+
+    private var renderedAppearance: PanelAppearance {
+        appearance.renderedForCurrentOS
+    }
+
+    private var cellFill: Color {
+        switch renderedAppearance {
+        case .currentMaterial:
+            Color.black.opacity(0.16)
+        case .dark:
+            Color.white.opacity(0.07)
+        case .liquidGlass:
+            Color.black.opacity(0.22)
+        }
+    }
+
+    var body: some View {
+        ZStack {
+            let shape = RoundedRectangle(cornerRadius: 9)
+            if renderedAppearance == .liquidGlass {
+                shape
+                    .fill(.thinMaterial)
+                    .opacity(0.56)
+                    .overlay { shape.fill(Color.black.opacity(0.12)) }
+            } else {
+                shape.fill(cellFill)
+            }
+            shape
+                .fill(Color.blue.opacity(0.22))
+                .overlay {
+                    shape.strokeBorder(Color.blue.opacity(0.65), lineWidth: 1)
+                }
+            Image(nsImage: image)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+                .frame(maxWidth: width - 12, maxHeight: iconMaxHeight)
+        }
+        .frame(width: width, height: height)
+        .preferredColorScheme(
+            renderedAppearance == .dark || renderedAppearance == .liquidGlass
+                ? .dark
+                : nil
+        )
+    }
+}
+
 @MainActor
 private final class ExternalDragPreviewPanel {
     private var panel: NSPanel?
-    private var imageView: NSImageView?
     private var lastPoint = CGPoint.zero
 
-    func show(image: NSImage?, atQuartzPoint point: CGPoint) {
+    func show(image: NSImage, atQuartzPoint point: CGPoint) {
         close()
         lastPoint = point
 
-        let previewImage = image
-            ?? NSImage(systemSymbolName: "menubar.rectangle", accessibilityDescription: nil)
-        let ratio = max(0.8, min(3, (previewImage?.size.width ?? 24) / max(1, previewImage?.size.height ?? 24)))
+        let ratio = max(0.8, min(3, image.size.width / max(1, image.size.height)))
         let size = NSSize(width: max(46, min(96, 14 + 28 * ratio)), height: 46)
         let panel = NSPanel(
             contentRect: NSRect(origin: .zero, size: size),
@@ -28,21 +92,17 @@ private final class ExternalDragPreviewPanel {
             backing: .buffered,
             defer: false
         )
-        let background = NSVisualEffectView(frame: NSRect(origin: .zero, size: size))
-        background.material = .hudWindow
-        background.blendingMode = .behindWindow
-        background.state = .active
-        background.wantsLayer = true
-        background.layer?.cornerRadius = 10
-        background.layer?.borderWidth = 1
-        background.layer?.borderColor = NSColor.systemBlue.withAlphaComponent(0.72).cgColor
-
-        let imageView = NSImageView(frame: background.bounds.insetBy(dx: 7, dy: 7))
-        imageView.image = previewImage
-        imageView.imageScaling = .scaleProportionallyUpOrDown
-        background.addSubview(imageView)
-
-        panel.contentView = background
+        let storedAppearance = UserDefaults.standard.string(
+            forKey: PanelAppearance.defaultsKey
+        )
+        let content = IconDragPreviewSurface(
+            image: image,
+            width: size.width,
+            appearance: PanelAppearance.decode(storedAppearance)
+        )
+        let hosting = NSHostingView(rootView: content)
+        hosting.frame = NSRect(origin: .zero, size: size)
+        panel.contentView = hosting
         panel.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -51,7 +111,6 @@ private final class ExternalDragPreviewPanel {
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
         panel.isReleasedWhenClosed = false
         self.panel = panel
-        self.imageView = imageView
         move(toQuartzPoint: point)
         panel.orderFrontRegardless()
     }
@@ -85,7 +144,6 @@ private final class ExternalDragPreviewPanel {
     func close() {
         panel?.orderOut(nil)
         panel = nil
-        imageView = nil
     }
 }
 
@@ -268,7 +326,10 @@ final class OverflowPanel {
     func beginExternalDrag(image: NSImage?, atQuartzPoint point: CGPoint) {
         guard isVisible else { return }
         dragState?.beginExternalDragging()
-        externalPreview.show(image: image, atQuartzPoint: point)
+        externalPreview.move(toQuartzPoint: point)
+        if let image {
+            externalPreview.show(image: image, atQuartzPoint: point)
+        }
     }
 
     func updateExternalDrag(atQuartzPoint point: CGPoint, isInsidePanel: Bool) {
@@ -364,13 +425,7 @@ private struct OverflowPanelView: View {
     }
 
     private var renderedAppearance: PanelAppearance {
-        if appearance == .liquidGlass {
-            if #available(macOS 26.0, *) {
-                return .liquidGlass
-            }
-            return .currentMaterial
-        }
-        return appearance
+        appearance.renderedForCurrentOS
     }
 
     private var usesDarkForeground: Bool {
@@ -560,30 +615,33 @@ private struct OverflowPanelView: View {
         width: CGFloat,
         isDragging: Bool = false
     ) -> some View {
-        ZStack {
-            let shape = RoundedRectangle(cornerRadius: 9)
-            if renderedAppearance == .liquidGlass {
-                shape
-                    .fill(.thinMaterial)
-                    .opacity(0.56)
-                    .overlay { shape.fill(Color.black.opacity(0.12)) }
-            } else {
-                shape.fill(iconCellFill)
-            }
+        Group {
             if isDragging {
-                shape
-                    .fill(Color.blue.opacity(0.22))
-                    .overlay {
-                        shape.strokeBorder(Color.blue.opacity(0.65), lineWidth: 1)
+                IconDragPreviewSurface(
+                    image: item.image,
+                    width: width,
+                    appearance: appearance
+                )
+            } else {
+                ZStack {
+                    let shape = RoundedRectangle(cornerRadius: 9)
+                    if renderedAppearance == .liquidGlass {
+                        shape
+                            .fill(.thinMaterial)
+                            .opacity(0.56)
+                            .overlay { shape.fill(Color.black.opacity(0.12)) }
+                    } else {
+                        shape.fill(iconCellFill)
                     }
+                    Image(nsImage: item.image)
+                        .resizable()
+                        .interpolation(.high)
+                        .scaledToFit()
+                        .frame(maxWidth: width - 12, maxHeight: iconMaxHeight)
+                }
+                .frame(width: width, height: cellSize)
             }
-            Image(nsImage: item.image)
-                .resizable()
-                .interpolation(.high)
-                .scaledToFit()
-                .frame(maxWidth: width - 12, maxHeight: iconMaxHeight)
         }
-        .frame(width: width, height: cellSize)
     }
 
     @ViewBuilder

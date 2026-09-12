@@ -26,12 +26,15 @@ final class StatusBarController {
     private var autoCollapseMonitor: Any?
     private var cacheCaptureTask: Task<Void, Never>?
     private var importCandidateRefreshTask: Task<Void, Never>?
+    private var importPreviewPrefetchTask: Task<Void, Never>?
     private var externalDragCaptureTask: Task<Void, Never>?
     private var activationTask: Task<Void, Never>?
     private var promotionTask: Task<Void, Never>?
     private var collapsedItemMonitorTask: Task<Void, Never>?
     private var automaticPlacementTask: Task<Void, Never>?
     private var externalDragItemID: CGWindowID?
+    private var importPreviewImages: [CGWindowID: NSImage] = [:]
+    private var importPreviewRequestedIDs: Set<CGWindowID> = []
     private var cachedItems: [CapturedItem] = []
     private var knownManagedWindowIDs: Set<CGWindowID> = []
     private var isImportTargetingToggle = false
@@ -611,17 +614,21 @@ final class StatusBarController {
             fromAppKit: toggleFrame,
             mainDisplayBounds: mainDisplayBounds
         )
+        let candidates = currentImportCandidates()
         guard menuBarImportMonitor.start(
-            candidates: currentImportCandidates(),
+            candidates: candidates,
             panelTargetFrame: panelTargetFrame,
             toggleTargetFrame: toggleTargetFrame
         ) else { return }
+        prefetchImportPreviewImages(for: candidates)
 
         importCandidateRefreshTask = Task { @MainActor [weak self] in
             while let self, self.panel.isVisible, self.menuBarImportMonitor.isRunning {
                 guard (try? await Task.sleep(for: .milliseconds(250))) != nil else { return }
                 guard self.panel.isVisible else { return }
-                self.menuBarImportMonitor.updateCandidates(self.currentImportCandidates())
+                let candidates = self.currentImportCandidates()
+                self.menuBarImportMonitor.updateCandidates(candidates)
+                self.prefetchImportPreviewImages(for: candidates)
             }
         }
     }
@@ -629,11 +636,29 @@ final class StatusBarController {
     private func disarmMenuBarImport() {
         importCandidateRefreshTask?.cancel()
         importCandidateRefreshTask = nil
+        importPreviewPrefetchTask?.cancel()
+        importPreviewPrefetchTask = nil
         externalDragCaptureTask?.cancel()
         externalDragCaptureTask = nil
         externalDragItemID = nil
+        importPreviewImages = [:]
+        importPreviewRequestedIDs = []
         menuBarImportMonitor.stop()
         setImportTargetingToggle(false)
+    }
+
+    private func prefetchImportPreviewImages(for candidates: [MenuBarItemWindow]) {
+        guard importPreviewPrefetchTask == nil else { return }
+        let missing = candidates.filter { !importPreviewRequestedIDs.contains($0.id) }
+        guard !missing.isEmpty else { return }
+        importPreviewRequestedIDs.formUnion(missing.map(\.id))
+
+        importPreviewPrefetchTask = Task { @MainActor [weak self] in
+            let images = await IconCapturer.captureImages(missing)
+            guard let self, !Task.isCancelled, self.panel.isVisible else { return }
+            self.importPreviewImages.merge(images) { _, fresh in fresh }
+            self.importPreviewPrefetchTask = nil
+        }
     }
 
     private func currentImportCandidates() -> [MenuBarItemWindow] {
@@ -672,14 +697,18 @@ final class StatusBarController {
     private func beginExternalDrag(_ item: MenuBarItemWindow, at point: CGPoint) {
         externalDragItemID = item.id
         setImportTargetingToggle(false)
-        panel.beginExternalDrag(image: nil, atQuartzPoint: point)
+        panel.beginExternalDrag(
+            image: importPreviewImages[item.id],
+            atQuartzPoint: point
+        )
         externalDragCaptureTask?.cancel()
         externalDragCaptureTask = Task { @MainActor [weak self] in
-            let captured = await IconCapturer.capture([item])
+            let captured = await IconCapturer.captureImages([item])
             guard let self,
                   !Task.isCancelled,
                   self.externalDragItemID == item.id,
-                  let image = captured.first?.image else { return }
+                  let image = captured[item.id] else { return }
+            self.importPreviewImages[item.id] = image
             self.panel.updateExternalDragImage(image)
         }
     }

@@ -1,6 +1,6 @@
 # FoldBar build report
 
-Verified locally on 2026-09-11 with Xcode 26.6 (17F113), Swift 6.3.3, and the macOS 26.5 SDK. The test suite was re-run on 2026-09-12 after removing the rejected drag-session primer.
+Verified locally on 2026-09-12 with Xcode 26.6 (17F113), Swift 6.3.3, and the macOS 26.5 SDK.
 
 ## Results
 
@@ -65,6 +65,12 @@ an ordinary click is replayed once with an event marker after the panel closes.
 Both the overflow panel and FoldBar's arrow accept a drop, with the arrow showing
 an accent-colored target state. The setting is read on every new mouse-down, so
 changes apply without reopening the panel.
+The `fix/external-drag-preview-style` candidate renders menu-bar-originated drag
+proxies with the same SwiftUI surface used by grid drag previews, including the
+appearance-aware base fill, blue tint, blue border, corner radius, and icon
+sizing. Visible import candidates are pre-captured when the panel opens and
+refreshed when a drag starts. If no real image is ready, the proxy stays hidden
+instead of briefly displaying the generic menu-bar placeholder.
 The panel now derives its presentation order from the live hidden windows in
 right-to-left order, placing the item nearest the menu-bar right first and the
 farthest-left/system-overflow item last. Promotion temporarily reduces FoldBar's
@@ -192,11 +198,12 @@ from a fresh process is not accepted as reliable. The experimental transparent-w
 drag-session primer was removed from both working trees; the remaining behavior
 falls back to overflow and refreshed proxies.
 
-An earlier candidate remains installed at `/Applications/FoldBar.app`
-with bundle identifier `local.foldbar.app`, Apple Development team
-`42MUMXKY79`, and executable SHA-256
-`d0e3831ab4c40e27eeb326773b3aff76b85289cf108ae6f9d39c3a02cf7f8cd9`.
-The newer `feat/direct-menu-bar-drag-setting` working-tree candidate passed the
-36-test suite and a signed universal Release build (`arm64` + `x86_64`) in an
-isolated temporary DerivedData directory. It was not installed, packaged, or
-used to change any real menu-bar item order.
+The `fix/external-drag-preview-style` working-tree candidate is installed at
+`/Applications/FoldBar.app` with bundle identifier `local.foldbar.app`, Apple
+Development team `42MUMXKY79`, and executable SHA-256
+`3083752770f322124706466a1b240154cb2c0bacd545e0250f75c97150a0b1cf`.
+The 36-test suite and signed universal Release build (`arm64` + `x86_64`) pass.
+The installed process launched successfully from the single intended path.
+Exact drag-preview appearance and the absence of a first-frame placeholder still
+require direct visual acceptance during a real menu-bar drag; no drop was
+completed during automated verification, so no real item order was changed.

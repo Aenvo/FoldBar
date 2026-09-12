@@ -19,11 +19,29 @@ enum IconCapturer {
 
     static func capture(_ windows: [MenuBarItemWindow]) async -> [CapturedItem] {
         async let hoverLabels = MenuBarItemMetadataResolver.labels(for: windows)
+        async let images = captureImages(windows)
+        let (resolvedHoverLabels, resolvedImages) = await (hoverLabels, images)
+
+        return windows.compactMap { window in
+            guard let image = resolvedImages[window.id] else { return nil }
+            return CapturedItem(
+                window: window,
+                image: image,
+                hoverText: resolvedHoverLabels[window.id]
+            )
+        }
+    }
+
+    /// Captures only window images, without waiting for Accessibility metadata.
+    /// The menu-bar drag monitor uses this for a warm preview cache so the first
+    /// drag frame can show the real icon instead of a generic placeholder.
+    static func captureImages(
+        _ windows: [MenuBarItemWindow]
+    ) async -> [CGWindowID: NSImage] {
         guard let content = try? await SCShareableContent
             .excludingDesktopWindows(false, onScreenWindowsOnly: false)
-        else { return [] }
-        let resolvedHoverLabels = await hoverLabels
-        var result: [CapturedItem] = []
+        else { return [:] }
+        var result: [CGWindowID: NSImage] = [:]
 
         for window in windows {
             guard let scWindow = content.windows.first(where: { $0.windowID == window.id }) else { continue }
@@ -39,14 +57,10 @@ enum IconCapturer {
                 contentFilter: filter,
                 configuration: configuration
             ) {
-                result.append(CapturedItem(
-                    window: window,
-                    // Preserve the real logical size. Replacing it with a
-                    // fixed width changes the image aspect ratio and visibly
-                    // squeezes text meters such as temperatures and battery.
-                    image: NSImage(cgImage: image, size: window.frame.size),
-                    hoverText: resolvedHoverLabels[window.id]
-                ))
+                // Preserve the real logical size. Replacing it with a fixed
+                // width changes the image aspect ratio and visibly squeezes
+                // text meters such as temperatures and battery.
+                result[window.id] = NSImage(cgImage: image, size: window.frame.size)
             }
         }
         return result
