@@ -31,7 +31,7 @@ final class MenuBarCommandDragMonitor {
         let startPoint: CGPoint
     }
 
-    static let replayedClickEventMarker: Int64 = 0x46_4F_4C_44_42_41_52
+    static let syntheticClickEventMarker: Int64 = 0x46_4F_4C_44_42_41_52
     static let directDragThreshold: CGFloat = 5
 
     private var eventTap: CFMachPort?
@@ -183,7 +183,7 @@ final class MenuBarCommandDragMonitor {
             return Unmanaged.passUnretained(event)
         }
 
-        if event.getIntegerValueField(.eventSourceUserData) == Self.replayedClickEventMarker {
+        if event.getIntegerValueField(.eventSourceUserData) == Self.syntheticClickEventMarker {
             return Unmanaged.passUnretained(event)
         }
 

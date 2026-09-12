@@ -3,29 +3,59 @@ import AppKit
 enum ExpandedMenuBarLayout {
     static let minimumItemWidth: CGFloat = 24
     static let maximumItemWidth: CGFloat = 220
+    // Control Center keeps this outer slot even when NSStatusItem.length is 0.
+    // Reserve it in the proxy layout so activation does not shift every item.
+    static let zeroLengthStatusItemSlotWidth: CGFloat = 16
 
     static func itemWidth(for frame: CGRect) -> CGFloat {
         min(maximumItemWidth, max(minimumItemWidth, frame.width))
     }
 
+    static func statusItemFrames(
+        on displayBounds: CGRect,
+        among windows: [MenuBarItemWindow]
+    ) -> [CGRect] {
+        windows.compactMap { window in
+            let frame = window.frame
+            guard abs(frame.minY - displayBounds.minY) <= 1,
+                  frame.height <= 40,
+                  frame.minX >= displayBounds.minX,
+                  frame.maxX <= displayBounds.maxX else { return nil }
+            return frame
+        }
+    }
+
     static func frame(
         beside anchor: CGRect,
         inside visibleArea: CGRect,
-        contentWidth: CGFloat
+        contentWidth: CGFloat,
+        avoiding occupiedFrames: [CGRect] = [],
+        trailingInset: CGFloat = 0
     ) -> CGRect? {
         guard anchor.width > 0,
               anchor.height > 0,
               contentWidth > 0,
+              trailingInset >= 0,
               visibleArea.width > 0,
               visibleArea.height > 0,
               anchor.midX >= visibleArea.minX,
               anchor.midX <= visibleArea.maxX else { return nil }
 
-        let availableWidth = anchor.minX - visibleArea.minX
+        let trailingEdge = occupiedFrames
+            .filter {
+                $0.width > 0
+                    && $0.minX >= visibleArea.minX
+                    && $0.minX < anchor.minX
+                    && $0.maxX <= anchor.minX + 1
+            }
+            .map(\.minX)
+            .min() ?? anchor.minX
+        let alignedTrailingEdge = trailingEdge - trailingInset
+        let availableWidth = alignedTrailingEdge - visibleArea.minX
         guard availableWidth >= minimumItemWidth else { return nil }
         let width = min(contentWidth, availableWidth)
         return CGRect(
-            x: anchor.minX - width,
+            x: alignedTrailingEdge - width,
             y: anchor.minY,
             width: width,
             height: min(anchor.height, visibleArea.height)
@@ -66,9 +96,8 @@ private final class ExpandedMenuBarButton: NSButton {
 
 /// Displays captured menu-item proxies directly in the usable menu-bar strip.
 ///
-/// The panel sits above ordinary status-item windows, so proxies temporarily
-/// replace whatever already occupies the area immediately left of FoldBar's
-/// trigger without changing another application's persistent item order.
+/// The panel sits above ordinary status-item windows but stops before visible
+/// status items to keep its transparent proxies from drawing over real icons.
 @MainActor
 final class ExpandedMenuBarPanel {
     private var panel: NSPanel?
@@ -83,12 +112,15 @@ final class ExpandedMenuBarPanel {
     func show(
         items: [CapturedItem],
         beside anchor: CGRect,
+        avoiding visibleItems: [MenuBarItemWindow],
         onClick: @escaping @MainActor (CapturedItem) -> Void,
         onDismiss: @escaping @MainActor () -> Void
     ) -> Bool {
         close()
         guard !items.isEmpty,
-              let visibleArea = Self.visibleMenuBarArea(containing: anchor) else { return false }
+              let screen = Self.screen(containing: anchor),
+              let visibleArea = Self.visibleMenuBarArea(containing: anchor, screens: [screen])
+        else { return false }
 
         // The panel's left-to-right view order is the reverse of the overflow
         // panel order: the item nearest FoldBar remains nearest its trigger.
@@ -98,7 +130,12 @@ final class ExpandedMenuBarPanel {
         guard let panelFrame = ExpandedMenuBarLayout.frame(
             beside: anchor,
             inside: visibleArea,
-            contentWidth: contentWidth
+            contentWidth: contentWidth,
+            avoiding: Self.visibleStatusItemFrames(
+                on: screen,
+                among: visibleItems
+            ),
+            trailingInset: ExpandedMenuBarLayout.zeroLengthStatusItemSlotWidth
         ) else { return false }
 
         let panel = ExpandedMenuBarWindow(
@@ -107,16 +144,12 @@ final class ExpandedMenuBarPanel {
             backing: .buffered,
             defer: false
         )
-        let background = NSVisualEffectView(frame: CGRect(origin: .zero, size: panelFrame.size))
-        background.material = .menu
-        background.blendingMode = .behindWindow
-        background.state = .active
-        background.wantsLayer = true
-        background.layer?.backgroundColor = NSColor.windowBackgroundColor
-            .withAlphaComponent(0.76)
-            .cgColor
+        // Keep the expanded strip visually native to the menu bar: only the
+        // captured item proxies should be visible, with no rectangular panel
+        // material behind them.
+        let contentView = NSView(frame: CGRect(origin: .zero, size: panelFrame.size))
 
-        let scrollView = NSScrollView(frame: background.bounds)
+        let scrollView = NSScrollView(frame: contentView.bounds)
         scrollView.drawsBackground = false
         scrollView.hasHorizontalScroller = false
         scrollView.hasVerticalScroller = false
@@ -136,17 +169,16 @@ final class ExpandedMenuBarPanel {
             let button = ExpandedMenuBarButton(
                 item: item,
                 frame: CGRect(x: x, y: 0, width: width, height: panelFrame.height)
-            ) { [weak self] in
-                self?.close()
+            ) {
                 onClick(item)
             }
             document.addSubview(button)
             x += width
         }
         scrollView.documentView = document
-        background.addSubview(scrollView)
+        contentView.addSubview(scrollView)
 
-        panel.contentView = background
+        panel.contentView = contentView
         panel.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -169,8 +201,7 @@ final class ExpandedMenuBarPanel {
     }
 
     func close() {
-        monitors.forEach(NSEvent.removeMonitor)
-        monitors.removeAll()
+        removeMonitors()
         panel?.orderOut(nil)
         panel = nil
         anchorFrame = .zero
@@ -179,14 +210,16 @@ final class ExpandedMenuBarPanel {
         callback?()
     }
 
+    private func removeMonitors() {
+        monitors.forEach(NSEvent.removeMonitor)
+        monitors.removeAll()
+    }
+
     static func visibleMenuBarArea(
         containing anchor: CGRect,
         screens: [NSScreen] = NSScreen.screens
     ) -> CGRect? {
-        let point = CGPoint(x: anchor.midX, y: anchor.midY)
-        guard let screen = screens.first(where: { $0.frame.contains(point) }) ?? screens.first else {
-            return nil
-        }
+        guard let screen = screen(containing: anchor, screens: screens) else { return nil }
         if let area = screen.auxiliaryTopRightArea, area.width > 0, area.height > 0 {
             return area
         }
@@ -196,6 +229,26 @@ final class ExpandedMenuBarPanel {
             width: screen.frame.width,
             height: anchor.height
         )
+    }
+
+    private static func screen(
+        containing anchor: CGRect,
+        screens: [NSScreen] = NSScreen.screens
+    ) -> NSScreen? {
+        let point = CGPoint(x: anchor.midX, y: anchor.midY)
+        return screens.first(where: { $0.frame.contains(point) }) ?? screens.first
+    }
+
+    private static func visibleStatusItemFrames(
+        on screen: NSScreen,
+        among windows: [MenuBarItemWindow]
+    ) -> [CGRect] {
+        let screenNumberKey = NSDeviceDescriptionKey("NSScreenNumber")
+        guard let number = screen.deviceDescription[screenNumberKey] as? NSNumber else {
+            return []
+        }
+        let displayBounds = CGDisplayBounds(CGDirectDisplayID(number.uint32Value))
+        return ExpandedMenuBarLayout.statusItemFrames(on: displayBounds, among: windows)
     }
 
     private func installMonitors() {

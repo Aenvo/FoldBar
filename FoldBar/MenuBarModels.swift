@@ -21,11 +21,18 @@ struct CapturedItem: Identifiable {
     let window: MenuBarItemWindow
     let image: NSImage
     let hoverText: String
+    let ownerProcessIdentifier: pid_t?
     var id: CGWindowID { window.id }
 
-    init(window: MenuBarItemWindow, image: NSImage, hoverText: String? = nil) {
+    init(
+        window: MenuBarItemWindow,
+        image: NSImage,
+        hoverText: String? = nil,
+        ownerProcessIdentifier: pid_t? = nil
+    ) {
         self.window = window
         self.image = image
+        self.ownerProcessIdentifier = ownerProcessIdentifier
         let resolved = hoverText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         self.hoverText = resolved.isEmpty ? window.displayName : resolved
     }

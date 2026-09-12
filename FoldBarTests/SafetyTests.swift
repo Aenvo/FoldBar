@@ -194,6 +194,86 @@ struct SafetyTests {
         ) == CGRect(x: 948, y: 1073, width: 411, height: 34))
     }
 
+    @Test("Expanded proxies stop before visible status items")
+    func expandedMenuBarAvoidsVisibleItems() {
+        let visibleArea = CGRect(x: 948, y: 1073, width: 762, height: 34)
+        let trigger = CGRect(x: 1359, y: 1073, width: 31, height: 34)
+        let visibleItem = CGRect(x: 1291, y: 0, width: 68, height: 34)
+        let systemItem = CGRect(x: 1390, y: 0, width: 71, height: 34)
+        let separator = CGRect(x: -3725, y: 0, width: 5016, height: 34)
+
+        #expect(ExpandedMenuBarLayout.frame(
+            beside: trigger,
+            inside: visibleArea,
+            contentWidth: 334,
+            avoiding: [visibleItem, systemItem, separator],
+            trailingInset: ExpandedMenuBarLayout.zeroLengthStatusItemSlotWidth
+        ) == CGRect(x: 948, y: 1073, width: 327, height: 34))
+    }
+
+    @Test("Expanded proxies reserve the zero-length separator slot")
+    func expandedMenuBarMatchesActivationLayout() {
+        let visibleArea = CGRect(x: 948, y: 1073, width: 762, height: 34)
+        let trigger = CGRect(x: 1359, y: 1073, width: 31, height: 34)
+
+        #expect(ExpandedMenuBarLayout.frame(
+            beside: trigger,
+            inside: visibleArea,
+            contentWidth: 334,
+            trailingInset: ExpandedMenuBarLayout.zeroLengthStatusItemSlotWidth
+        ) == CGRect(x: 1009, y: 1073, width: 334, height: 34))
+    }
+
+    @Test("Auto-collapse ignores FoldBar's own forwarded click")
+    func autoCollapseIgnoresForwardedClick() {
+        #expect(!StatusBarController.shouldFinishAutoCollapse(
+            eventUserData: MenuBarCommandDragMonitor.syntheticClickEventMarker
+        ))
+        #expect(StatusBarController.shouldFinishAutoCollapse(eventUserData: 0))
+    }
+
+    @Test("Expanded proxies fail closed when visible items leave no room")
+    func expandedMenuBarRejectsOccupiedArea() {
+        let visibleArea = CGRect(x: 948, y: 1073, width: 762, height: 34)
+        let trigger = CGRect(x: 1359, y: 1073, width: 31, height: 34)
+        let visibleItems = [CGRect(x: 970, y: 0, width: 389, height: 34)]
+
+        #expect(ExpandedMenuBarLayout.frame(
+            beside: trigger,
+            inside: visibleArea,
+            contentWidth: 334,
+            avoiding: visibleItems
+        ) == nil)
+    }
+
+    @Test("Expanded proxies consider status items only on the trigger display")
+    func expandedMenuBarFiltersOtherDisplays() {
+        let display = CGRect(x: 0, y: 0, width: 1712, height: 1107)
+        let currentDisplay = MenuBarItemWindow(
+            id: 1,
+            frame: CGRect(x: 1291, y: 0, width: 68, height: 34),
+            ownerName: "Example",
+            windowName: "Current"
+        )
+        let otherDisplay = MenuBarItemWindow(
+            id: 2,
+            frame: CGRect(x: 1200, y: -1200, width: 68, height: 34),
+            ownerName: "Example",
+            windowName: "Other"
+        )
+        let hidden = MenuBarItemWindow(
+            id: 3,
+            frame: CGRect(x: -3763, y: 0, width: 38, height: 34),
+            ownerName: "Example",
+            windowName: "Hidden"
+        )
+
+        #expect(ExpandedMenuBarLayout.statusItemFrames(
+            on: display,
+            among: [currentDisplay, otherDisplay, hidden]
+        ) == [currentDisplay.frame])
+    }
+
     @Test("Import target puts the entire item on the managed side")
     func importTarget() {
         let item = CGRect(x: 1200, y: 0, width: 24, height: 24)

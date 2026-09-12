@@ -5,7 +5,7 @@ Verified locally on 2026-09-12 with Xcode 26.6 (17F113), Swift 6.3.3, and the ma
 ## Results
 
 - Debug app-hosted test build: passed.
-- Swift Testing: 36 tests passed.
+- Swift Testing: 45 tests passed.
 - Release build: passed with no source compiler warnings.
 - Release binary: universal `arm64` + `x86_64`.
 - Deployment target: macOS 14.0.
@@ -108,7 +108,9 @@ before accepting a move. Whether placement succeeds or falls back to overflow,
 the expanded section is recaptured so restarted items do not disappear from the
 proxy cache. The overflow panel's Expand action now presents those cached,
 clickable proxies across the usable menu-bar area immediately left of the
-trigger instead of exposing the real hidden section.
+trigger instead of exposing the real hidden section. The expanded proxy strip
+uses a fully transparent panel surface, so only the captured item proxies are
+drawn and no separate light rectangular backdrop appears behind them.
 
 ## Packaged artifact
 
@@ -153,6 +155,8 @@ The packaged app is signed with the local Apple Development certificate so its p
 - Detection of newly registered managed-window IDs and free-space calculation
   for automatic placement.
 - Menu-bar overlay clamping and proxy layout for the expanded presentation.
+- Transparent expanded-proxy placement before existing visible status items,
+  including fail-closed handling when those items leave insufficient room.
 
 The earlier 0.1.0 build was interactively tested and exposed the permission repetition, visible capture flash, and aspect-ratio defects addressed in 0.2.0. The signed `feat/panel-command-drag-import` candidate is installed and launches from `/Applications/FoldBar.app`. After the window-ID fix, the installed trigger was exercised through System Events: the panel opened, remained alive across multiple candidate-refresh intervals, closed normally, and produced no new crash report. On 2026-09-11, the user then reported that the installed real-menu-bar Command-drag import acceptance path succeeded. The outside-panel cancellation path was not reported separately and remains pending.
 
@@ -217,12 +221,81 @@ After avoiding the unnecessary trigger-width reduction, one real promotion was
 observed and confirmed adjacent to the trigger. A subsequent promotion entered
 the visible section but stopped one already promoted item's width (`38 pt`) away
 from the trigger, showing that a separator-relative target cannot satisfy the
-required insertion order once the visible section is occupied. The current
-candidate therefore targets the live trigger frame after every layout adjustment
-while retaining fail-closed visible-side and adjacency verification. It is
-installed at `/Applications/FoldBar.app` with executable SHA-256
+required insertion order once the visible section is occupied. The candidate for
+this promotion fix therefore targets the live trigger frame after every layout
+adjustment while retaining fail-closed visible-side and adjacency verification.
+It is installed at `/Applications/FoldBar.app` with executable SHA-256
 `48ca06c5bfaaa383b1720ad75091da3f389258b32bcb902f2405c506cff8ec18`.
 The 38-test suite and signed universal Release build (`arm64` + `x86_64`) pass;
 two consecutive real promotions with this final target remain pending user
 acceptance. Correlated `Promotion` and `SyntheticDrag` unified-log categories
 remain enabled for that acceptance check.
+
+The preceding transparent-strip candidate removed the expanded proxy panel's menu
+material and white overlay while retaining its clear window, borderless proxy
+buttons, scrolling, and click forwarding. Its 38-test suite and signed universal
+Release build (`arm64` + `x86_64`) passed. It was installed at the single intended
+`/Applications/FoldBar.app` path with executable SHA-256
+`fe11a020ead6ca85f4936fcbb8ef85f55b579b71bc9247bbbbf69371739c3833`.
+The user's next visual check confirmed that the backdrop was gone, but also
+revealed that the transparent proxies overlapped an already-visible status item.
+
+The overlap-avoidance candidate detects visible status-item windows on
+the trigger's display and stops the transparent proxy strip before their
+leftmost edge. In the reported live geometry, the existing `68 pt` item at
+`x=1291...1359` remains next to the FoldBar trigger while the `334 pt` proxy
+strip moves from `x=1025...1359` to `x=957...1291`. Other displays, FoldBar's
+own windows, and system items to the right of the trigger are excluded. If less
+than one proxy slot remains, presentation fails closed instead of overlapping.
+The 41-test suite and signed universal Release build (`arm64` + `x86_64`) pass.
+It is installed and running from `/Applications/FoldBar.app` with executable
+SHA-256 `8481f1e02a2371a3ee4cbba935fd7e6ac6e060019edef2edc95c21ad6154004b`.
+No real menu-bar item was dragged, hidden, or reordered during verification;
+direct visual acceptance of the expanded strip remains pending.
+
+The hidden-separator candidate keeps the separator's symbol as its
+variable-length sizing reference but makes the separator button visually
+transparent. This removes the K-like `chevron.left.to.line` glyph without
+changing the separator window, saved order, collapse boundary, or promotion
+geometry. The 41-test suite and signed universal Release build (`arm64` +
+`x86_64`) pass. It is installed and running from `/Applications/FoldBar.app`
+with executable SHA-256
+`ae0a47f915ed55b13a13ca40288a704591e387d09e22d1f8d08391317c76a0e0`.
+Direct visual acceptance remains pending; no real menu-bar item was moved.
+
+The rejected proxy-activation handoff candidate kept the expanded proxy strip
+visible as a click-through transition layer while the real status items reflowed
+underneath. Live acceptance showed that the transparent window did not mask the
+real items: both rows were visible at once, followed by a second shift caused by
+the invisible variable-width separator, and only then the target popover. Its
+installed executable SHA-256 was
+`03cd26316deff72a255f6e45b7146a7de120fb20fa79add0a70d44c694ff5e50`.
+
+The replacement activation path removes the proxies before revealing any real
+status windows and expands directly to a zero-length separator layout. Control
+Center retains a measured `16 pt` outer slot even when the status-item length,
+image, and button content are all zero; the proxy layout reserves that same slot
+from the outset so the real row does not shift left after a click. It polls the
+target frame at approximately one display refresh interval, then waits until the
+owning application's accessibility menu-item anchor agrees with the already-
+visible Quartz status-window center before forwarding the click. This closes the
+interval in which an icon looks visible but its application would still anchor a
+new popover to the old off-screen position. The forwarded mouse events carry
+FoldBar's existing synthetic-click marker, and the automatic collapse monitor
+ignores that marker instead of mistaking the opening mouse-up for a request to
+close the target. The ordinary path therefore has one aligned reflow, no
+proxy/real overlap, no new gap after click, and no fixed post-click overlay delay.
+Only a target that still needs the FoldBar trigger's slot retains the existing
+bounded `140 ms` safeguard before that temporary width is restored.
+
+The final candidate passed 45 Swift Testing tests and a signed universal Release
+build (`arm64` + `x86_64`). It is installed and running from
+`/Applications/FoldBar.app` with executable SHA-256
+`6696126d877bfce32ac2897c439407fc9e3b24ebf3b419753849c7d6406af839`.
+An automated live activation of the ChatGPT proxy measured: proxy removed at
+`14 ms`; separator at its final `16 pt` slot by `24 ms`; all real items in their
+single final layout with ChatGPT at `x=1235...1273` by `33 ms`; the owning AX
+anchor synchronized by `143 ms`; and the `767 x 197` ChatGPT popover visible on
+screen at `x=937` by `209 ms`. No doubled row, intermediate separator gap, second
+row shift, early collapse, or off-screen target popover was observed. The test
+popover was closed and FoldBar was returned to its collapsed state afterward.

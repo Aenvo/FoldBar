@@ -12,6 +12,7 @@ final class StatusBarController {
     private static let automaticPlacementStabilizationMilliseconds = 10_000
     private static let automaticPlacementRetryDelaysMilliseconds = [2_000]
     private static let promotionConfirmationPolls = 3
+    private static let activationPresentationPolls = 60
     private static let toggleAutosaveName = "foldbar_toggle"
     private static let separatorAutosaveName = "foldbar_separator"
     private static let combinedPermissionRequestKey = "didRequestCombinedPermissionsV1"
@@ -100,7 +101,11 @@ final class StatusBarController {
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
             button.toolTip = "FoldBar"
         }
+        // The separator is a layout boundary, not a user-facing control. Keep
+        // its image as the variable-length sizing reference, but do not render
+        // the K-like `chevron.left.to.line` glyph in the menu bar.
         separatorItem.button?.image = symbol("chevron.left.to.line")
+        separatorItem.button?.alphaValue = 0
         updateToggleIcon()
         scheduleInitialCollapse()
         schedulePermissionOnboarding()
@@ -225,7 +230,7 @@ final class StatusBarController {
         armCollapsedItemMonitor()
     }
 
-    private func expandRealMenuBar() {
+    private func expandRealMenuBar(removingSeparatorGap: Bool = false) {
         guard isCollapsed else { return }
         disarmCollapsedItemMonitor()
         cacheCaptureTask?.cancel()
@@ -236,7 +241,10 @@ final class StatusBarController {
         disarmAutoCollapse()
         panel.close()
         expandedMenuBarPanel.close()
-        separatorItem.length = NSStatusItem.variableLength
+        // A transparent separator still reserves its variable-width slot. A
+        // proxy click removes that slot up front so revealing the real items
+        // produces one layout, without the visible blank gap and second shift.
+        separatorItem.length = removingSeparatorGap ? 0 : NSStatusItem.variableLength
         isCollapsed = false
         updateToggleIcon()
     }
@@ -326,6 +334,7 @@ final class StatusBarController {
         let shown = expandedMenuBarPanel.show(
             items: items,
             beside: anchor,
+            avoiding: currentImportCandidates(),
             onClick: { [weak self] item in self?.activate(item) },
             onDismiss: { [weak self] in self?.updateToggleIcon() }
         )
@@ -447,9 +456,20 @@ final class StatusBarController {
     }
 
     private func activate(_ item: CapturedItem) {
-        guard requireAccessibility() else { return }
-        guard activationTask == nil, promotionTask == nil else { return }
-        expandRealMenuBar()
+        let closesExpandedProxies = expandedMenuBarPanel.isVisible
+        guard requireAccessibility() else {
+            if closesExpandedProxies { expandedMenuBarPanel.close() }
+            return
+        }
+        guard activationTask == nil, promotionTask == nil else {
+            if closesExpandedProxies { expandedMenuBarPanel.close() }
+            return
+        }
+        // Remove the transparent proxies before asking Control Center to reveal
+        // the real status windows. Keeping both alive across async layout polls
+        // creates the visibly doubled row reported during acceptance.
+        if closesExpandedProxies { expandedMenuBarPanel.close() }
+        expandRealMenuBar(removingSeparatorGap: true)
 
         activationTask = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -467,19 +487,17 @@ final class StatusBarController {
         }
 
         // A far-left managed item can remain partly behind the notch even after
-        // expanding the separator. Temporarily reclaim our trigger's width,
-        // then the separator's width if needed, before forwarding any click.
-        // This preserves the real item order and mirrors the space-making path
-        // used by promotion without performing a Command-drag.
+        // expanding with a zero-width separator. First try that final layout,
+        // then reclaim only our trigger's width if needed. This avoids exposing
+        // an intermediate variable-width separator layout to the user.
         let visibleSegments = Self.activeVisibleMenuBarSegments()
-        toggleItem.length = 0
-        var frame = await waitForStableMenuBarFrame(of: item.id)
+        var frame = await waitForActivationFrame(of: item)
 
         if frame.flatMap({
             Self.activationPoint(itemFrame: $0, visibleSegments: visibleSegments)
         }) == nil {
-            separatorItem.length = 0
-            frame = await waitForStableMenuBarFrame(of: item.id)
+            toggleItem.length = 0
+            frame = await waitForActivationFrame(of: item)
         }
 
         guard !Task.isCancelled else { return }
@@ -496,11 +514,37 @@ final class StatusBarController {
             return
         }
 
-        EventForwarder.click(at: point)
-        // Let the target app establish its menu or popover before restoring
-        // FoldBar's own widths and reflowing the status bar again.
-        guard (try? await Task.sleep(for: .milliseconds(140))) != nil,
-              !Task.isCancelled else { return }
+        let targetDisplay = Self.activeDisplayBounds().first { $0.contains(point) }
+        let baselineAuxiliaryWindows = item.ownerProcessIdentifier.flatMap { owner in
+            targetDisplay.map {
+                ActivationWindowScanner.visibleAuxiliaryWindowIDs(
+                    ownerProcessIdentifier: owner,
+                    on: $0
+                )
+            }
+        }
+
+        EventForwarder.click(
+            at: point,
+            eventUserData: MenuBarCommandDragMonitor.syntheticClickEventMarker
+        )
+
+        // Keep the real anchor in place until the owning application actually
+        // presents its menu/popover on this display. A fixed delay can collapse
+        // a slow target first, causing the new window to inherit an off-screen
+        // anchor. Items that do not present a window use the bounded fallback.
+        if let owner = item.ownerProcessIdentifier,
+           let display = targetDisplay,
+           let baseline = baselineAuxiliaryWindows {
+            _ = await waitForTargetPresentation(
+                ownerProcessIdentifier: owner,
+                on: display,
+                excluding: baseline
+            )
+        } else {
+            guard (try? await Task.sleep(for: .milliseconds(500))) != nil,
+                  !Task.isCancelled else { return }
+        }
         armAutoCollapse()
     }
 
@@ -809,7 +853,7 @@ final class StatusBarController {
 
             EventForwarder.click(
                 at: point,
-                eventUserData: MenuBarCommandDragMonitor.replayedClickEventMarker
+                eventUserData: MenuBarCommandDragMonitor.syntheticClickEventMarker
             )
         }
     }
@@ -1062,6 +1106,68 @@ final class StatusBarController {
         return previous
     }
 
+    /// Proxy activation waits for both the visible Quartz frame and the owning
+    /// application's AX anchor. Poll at roughly one display refresh instead of
+    /// holding a visual transition layer through this synchronization window.
+    private func waitForActivationFrame(of item: CapturedItem) async -> CGRect? {
+        var previous: CGRect?
+        var stablePolls = 0
+
+        for poll in 0..<20 {
+            if poll > 0 {
+                guard (try? await Task.sleep(for: .milliseconds(16))) != nil,
+                      !Task.isCancelled else { return nil }
+            }
+            guard let frame = MenuBarItemScanner.frame(of: item.id),
+                  Self.isInMenuBarStrip(frame) else {
+                previous = nil
+                stablePolls = 0
+                continue
+            }
+            if previous == frame {
+                stablePolls += 1
+                if let owner = item.ownerProcessIdentifier {
+                    if MenuBarItemMetadataResolver.hasSynchronizedMenuExtra(
+                        ownerProcessIdentifier: owner,
+                        matching: frame
+                    ) {
+                        return frame
+                    }
+                } else if stablePolls >= 8 {
+                    // Metadata is optional. Without an owner process, retain a
+                    // bounded settling interval so the target's internal anchor
+                    // can catch up with its already-stable Quartz window.
+                    return frame
+                }
+            } else {
+                stablePolls = 0
+            }
+            previous = frame
+        }
+        // AX metadata can be absent or stale for otherwise clickable status
+        // items. The full poll window is the bounded fallback in that case.
+        return previous
+    }
+
+    private func waitForTargetPresentation(
+        ownerProcessIdentifier: pid_t,
+        on displayBounds: CGRect,
+        excluding baselineWindowIDs: Set<CGWindowID>
+    ) async -> Bool {
+        for poll in 0..<Self.activationPresentationPolls {
+            if poll > 0 {
+                guard (try? await Task.sleep(for: .milliseconds(20))) != nil,
+                      !Task.isCancelled else { return false }
+            }
+            let current = ActivationWindowScanner.visibleAuxiliaryWindowIDs(
+                ownerProcessIdentifier: ownerProcessIdentifier,
+                on: displayBounds
+            )
+            if !current.subtracting(baselineWindowIDs).isEmpty { return true }
+        }
+        return false
+    }
+
     private func waitForPromotion(
         of id: CGWindowID,
         diagnosticID: String
@@ -1148,7 +1254,9 @@ final class StatusBarController {
             guard (try? await Task.sleep(for: .milliseconds(450))) != nil else { return }
             guard let self, !self.isCollapsed else { return }
             if self.autoCollapseMonitor == nil {
-                self.autoCollapseMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { [weak self] _ in
+                self.autoCollapseMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
+                    let userData = event.cgEvent?.getIntegerValueField(.eventSourceUserData) ?? 0
+                    guard Self.shouldFinishAutoCollapse(eventUserData: userData) else { return }
                     MainActor.assumeIsolated { self?.finishAutoCollapse() }
                 }
             }
@@ -1160,6 +1268,10 @@ final class StatusBarController {
     private func finishAutoCollapse() {
         disarmAutoCollapse()
         if !isCollapsed { collapse() }
+    }
+
+    static func shouldFinishAutoCollapse(eventUserData: Int64) -> Bool {
+        eventUserData != MenuBarCommandDragMonitor.syntheticClickEventMarker
     }
 
     private func disarmAutoCollapse() {

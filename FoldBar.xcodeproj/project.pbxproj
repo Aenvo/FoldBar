@@ -18,10 +18,12 @@
 		9D16B19EC05C65936AF5C00E /* StatusBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92EB1088F5530CCEAC5B1B5B /* StatusBarController.swift */; };
 		ACDE29DAF0C376AE59E2EAA1 /* FoldBarApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F7E1047B214A889A6F7A075 /* FoldBarApp.swift */; };
 		AF8594F1CFD85CA6DC369D00 /* MenuBarItemMetadataResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB5161F405494A7CEFB1D9BF /* MenuBarItemMetadataResolver.swift */; };
+		BD00C8D88D9D1F6D16CEFF29 /* ActivationWindowScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57CE606313CC3B6BE396EB97 /* ActivationWindowScanner.swift */; };
 		D071FF18853A6B1472442DB5 /* SafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06443CFD70DBFB74187DB17A /* SafetyTests.swift */; };
 		D123B0CEC710214CA5C6D535 /* ScannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3783DBDBF4A87DBF6D5059D /* ScannerTests.swift */; };
 		DFEF4C40BEF74F7759CBC981 /* MenuBarModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9033D86C7F9B7C24908A639D /* MenuBarModels.swift */; };
 		E0CC91B025AB5B24A47A1642 /* MenuBarItemScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEFCEA7D523F220F8618C67A /* MenuBarItemScanner.swift */; };
+		EA25C4FA17FB1C140BD62B86 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 4B8635F510178EA2E1F80764 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -38,7 +40,9 @@
 		06443CFD70DBFB74187DB17A /* SafetyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafetyTests.swift; sourceTree = "<group>"; };
 		3C1A7F3D5EAEADE2886A01A9 /* ExpandedMenuBarPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExpandedMenuBarPanel.swift; sourceTree = "<group>"; };
 		46840FF2492E027B55B8E301 /* PanelAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelAppearance.swift; sourceTree = "<group>"; };
+		4B8635F510178EA2E1F80764 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		4F7E1047B214A889A6F7A075 /* FoldBarApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoldBarApp.swift; sourceTree = "<group>"; };
+		57CE606313CC3B6BE396EB97 /* ActivationWindowScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivationWindowScanner.swift; sourceTree = "<group>"; };
 		57F1F6CC7E3187F59CD31EC4 /* FoldBar.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FoldBar.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		9033D86C7F9B7C24908A639D /* MenuBarModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarModels.swift; sourceTree = "<group>"; };
 		92EB1088F5530CCEAC5B1B5B /* StatusBarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusBarController.swift; sourceTree = "<group>"; };
@@ -67,7 +71,9 @@
 		1ED8C3C14EFE141B3D4BE1CB /* FoldBar */ = {
 			isa = PBXGroup;
 			children = (
+				57CE606313CC3B6BE396EB97 /* ActivationWindowScanner.swift */,
 				9A222620E7875F71AA42C587 /* AppearanceSettingsPanel.swift */,
+				4B8635F510178EA2E1F80764 /* Assets.xcassets */,
 				FE9EE71362C03109F2B75205 /* EventForwarder.swift */,
 				3C1A7F3D5EAEADE2886A01A9 /* ExpandedMenuBarPanel.swift */,
 				4F7E1047B214A889A6F7A075 /* FoldBarApp.swift */,
@@ -128,6 +134,7 @@
 			buildConfigurationList = 2B17F3CBD41D55C5BF43333E /* Build configuration list for PBXNativeTarget "FoldBar" */;
 			buildPhases = (
 				5207F306036C4BE82A897761 /* Sources */,
+				64C632E4E222A00594A1AB57 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -179,6 +186,17 @@
 		};
 /* End PBXProject section */
 
+/* Begin PBXResourcesBuildPhase section */
+		64C632E4E222A00594A1AB57 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				EA25C4FA17FB1C140BD62B86 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		3C894A63A63F652D87B28A32 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -193,6 +211,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				BD00C8D88D9D1F6D16CEFF29 /* ActivationWindowScanner.swift in Sources */,
 				559949813EBA8F613549B8CE /* AppearanceSettingsPanel.swift in Sources */,
 				09FE8205C6F7D6FBA0B5A35F /* EventForwarder.swift in Sources */,
 				7668B818B06CD04F2B0F11EB /* ExpandedMenuBarPanel.swift in Sources */,

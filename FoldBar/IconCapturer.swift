@@ -18,16 +18,17 @@ enum IconCapturer {
     }
 
     static func capture(_ windows: [MenuBarItemWindow]) async -> [CapturedItem] {
-        async let hoverLabels = MenuBarItemMetadataResolver.labels(for: windows)
+        async let accessibilityMetadata = MenuBarItemMetadataResolver.metadata(for: windows)
         async let images = captureImages(windows)
-        let (resolvedHoverLabels, resolvedImages) = await (hoverLabels, images)
+        let (resolvedMetadata, resolvedImages) = await (accessibilityMetadata, images)
 
         return windows.compactMap { window in
             guard let image = resolvedImages[window.id] else { return nil }
             return CapturedItem(
                 window: window,
                 image: image,
-                hoverText: resolvedHoverLabels[window.id]
+                hoverText: resolvedMetadata[window.id]?.label,
+                ownerProcessIdentifier: resolvedMetadata[window.id]?.processIdentifier
             )
         }
     }

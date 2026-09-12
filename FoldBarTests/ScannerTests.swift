@@ -99,11 +99,13 @@ struct ScannerTests {
         let metadata = [
             MenuBarItemAccessibilityMetadata(
                 frame: CGRect(x: -3798, y: 5, width: 36, height: 24),
-                label: "Clash Verge"
+                label: "Clash Verge",
+                processIdentifier: 101
             ),
             MenuBarItemAccessibilityMetadata(
                 frame: CGRect(x: -3980, y: 5, width: 24, height: 24),
-                label: "PixPin"
+                label: "PixPin",
+                processIdentifier: 202
             )
         ]
 
@@ -114,6 +116,71 @@ struct ScannerTests {
 
         #expect(labels[first.id] == "Clash Verge")
         #expect(labels[second.id] == "PixPin")
+
+        let resolved = MenuBarItemMetadataResolver.matchMetadata(
+            windows: [first, second],
+            metadata: metadata
+        )
+        #expect(resolved[first.id]?.processIdentifier == 101)
+        #expect(resolved[second.id]?.processIdentifier == 202)
+    }
+
+    @Test("Activation detects only a newly visible target-owned auxiliary window")
+    func activationWindowDetection() {
+        let display = CGRect(x: 0, y: 0, width: 1710, height: 1107)
+        let windows = [
+            ActivationWindowRecord(
+                id: 1,
+                ownerProcessIdentifier: 77,
+                layer: 101,
+                frame: CGRect(x: 937, y: 35, width: 767, height: 197),
+                alpha: 1
+            ),
+            ActivationWindowRecord(
+                id: 2,
+                ownerProcessIdentifier: 77,
+                layer: 25,
+                frame: CGRect(x: 1235, y: 0, width: 38, height: 34),
+                alpha: 1
+            ),
+            ActivationWindowRecord(
+                id: 3,
+                ownerProcessIdentifier: 77,
+                layer: 101,
+                frame: CGRect(x: -3769, y: 35, width: 767, height: 197),
+                alpha: 1
+            ),
+            ActivationWindowRecord(
+                id: 4,
+                ownerProcessIdentifier: 88,
+                layer: 101,
+                frame: CGRect(x: 900, y: 35, width: 300, height: 200),
+                alpha: 1
+            )
+        ]
+
+        #expect(ActivationWindowScanner.candidateIDs(
+            ownerProcessIdentifier: 77,
+            on: display,
+            statusWindowLayer: 25,
+            among: windows
+        ) == [1])
+    }
+
+    @Test("Quartz and accessibility status frames match by their centers")
+    func synchronizedStatusItemFrames() {
+        let quartz = CGRect(x: 1235, y: 0, width: 38, height: 34)
+        let synchronizedAccessibility = CGRect(x: 1242, y: 5, width: 24, height: 24)
+        let staleAccessibility = CGRect(x: -3758, y: 5, width: 24, height: 24)
+
+        #expect(MenuBarItemMetadataResolver.framesReferToSameStatusItem(
+            synchronizedAccessibility,
+            quartz
+        ))
+        #expect(!MenuBarItemMetadataResolver.framesReferToSameStatusItem(
+            staleAccessibility,
+            quartz
+        ))
     }
 
     @Test("Native hover help wins and app identity is the final fallback")

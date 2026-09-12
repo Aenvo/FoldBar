@@ -1,9 +1,16 @@
 import AppKit
 import ApplicationServices
 
-struct MenuBarItemAccessibilityMetadata: Equatable {
+struct MenuBarItemAccessibilityMetadata: Equatable, Sendable {
     let frame: CGRect
     let label: String
+    let processIdentifier: pid_t?
+
+    init(frame: CGRect, label: String, processIdentifier: pid_t? = nil) {
+        self.frame = frame
+        self.label = label
+        self.processIdentifier = processIdentifier
+    }
 }
 
 enum MenuBarItemMetadataResolver {
@@ -26,6 +33,14 @@ enum MenuBarItemMetadataResolver {
 
     @MainActor
     static func labels(for windows: [MenuBarItemWindow]) async -> [CGWindowID: String] {
+        let resolved = await metadata(for: windows)
+        return resolved.mapValues(\.label)
+    }
+
+    @MainActor
+    static func metadata(
+        for windows: [MenuBarItemWindow]
+    ) async -> [CGWindowID: MenuBarItemAccessibilityMetadata] {
         guard !windows.isEmpty, AXIsProcessTrusted() else { return [:] }
 
         let applications: [RunningApplicationIdentity] = NSWorkspace.shared.runningApplications.compactMap { application in
@@ -36,7 +51,7 @@ enum MenuBarItemMetadataResolver {
             )
         }
         let task = Task.detached(priority: .utility) {
-            scanLabels(for: windows, applications: applications)
+            scanMetadata(for: windows, applications: applications)
         }
         return await withTaskCancellationHandler {
             await task.value
@@ -45,10 +60,10 @@ enum MenuBarItemMetadataResolver {
         }
     }
 
-    private static func scanLabels(
+    private static func scanMetadata(
         for windows: [MenuBarItemWindow],
         applications: [RunningApplicationIdentity]
-    ) -> [CGWindowID: String] {
+    ) -> [CGWindowID: MenuBarItemAccessibilityMetadata] {
         var metadata: [MenuBarItemAccessibilityMetadata] = []
         for application in applications {
             guard !Task.isCancelled else { break }
@@ -70,36 +85,76 @@ enum MenuBarItemMetadataResolver {
                             title: stringAttribute(item, kAXTitleAttribute),
                             appName: application.name
                           ) else { continue }
-                    metadata.append(.init(frame: frame, label: label))
+                    metadata.append(.init(
+                        frame: frame,
+                        label: label,
+                        processIdentifier: application.processIdentifier
+                    ))
                 }
             }
         }
-        return match(windows: windows, metadata: metadata)
+        return matchMetadata(windows: windows, metadata: metadata)
     }
 
     static func match(
         windows: [MenuBarItemWindow],
         metadata: [MenuBarItemAccessibilityMetadata]
     ) -> [CGWindowID: String] {
+        matchMetadata(windows: windows, metadata: metadata).mapValues(\.label)
+    }
+
+    static func matchMetadata(
+        windows: [MenuBarItemWindow],
+        metadata: [MenuBarItemAccessibilityMetadata]
+    ) -> [CGWindowID: MenuBarItemAccessibilityMetadata] {
         var remaining = metadata
-        var result: [CGWindowID: String] = [:]
+        var result: [CGWindowID: MenuBarItemAccessibilityMetadata] = [:]
 
         for window in windows {
             let center = CGPoint(x: window.frame.midX, y: window.frame.midY)
             guard let index = remaining.indices
                 .filter({ candidate in
-                    abs(remaining[candidate].frame.midX - center.x) <= horizontalCenterTolerance
-                        && abs(remaining[candidate].frame.midY - center.y) <= verticalCenterTolerance
+                    framesReferToSameStatusItem(
+                        remaining[candidate].frame,
+                        window.frame
+                    )
                 })
                 .min(by: { lhs, rhs in
                     centerDistanceSquared(remaining[lhs].frame, center: center)
                         < centerDistanceSquared(remaining[rhs].frame, center: center)
                 }) else { continue }
 
-            result[window.id] = remaining[index].label
+            result[window.id] = remaining[index]
             remaining.remove(at: index)
         }
         return result
+    }
+
+    /// Control Center moves the Quartz status window before the owning app's
+    /// AXMenuExtra updates its anchor. A forwarded click in that interval can
+    /// open the target popover at the old off-screen position even though the
+    /// real icon is already visible. Require both representations to agree.
+    static func hasSynchronizedMenuExtra(
+        ownerProcessIdentifier: pid_t,
+        matching windowFrame: CGRect
+    ) -> Bool {
+        let application = AXUIElementCreateApplication(ownerProcessIdentifier)
+        for container in children(of: application)
+        where stringAttribute(container, kAXRoleAttribute) == "AXMenuBar" {
+            for item in children(of: container)
+            where stringAttribute(item, kAXSubroleAttribute) == "AXMenuExtra" {
+                guard let accessibilityFrame = frame(of: item) else { continue }
+                if framesReferToSameStatusItem(accessibilityFrame, windowFrame) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    static func framesReferToSameStatusItem(_ lhs: CGRect, _ rhs: CGRect) -> Bool {
+        abs(lhs.midX - rhs.midX) <= horizontalCenterTolerance
+            && abs(lhs.midY - rhs.midY) <= verticalCenterTolerance
     }
 
     static func preferredLabel(
