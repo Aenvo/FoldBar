@@ -71,9 +71,42 @@ struct SafetyTests {
         let trigger = CGRect(x: 1400, y: 1080, width: 24, height: 24)
         let x = StatusBarController.promotionTargetX(
             itemFrame: item,
-            toggleFrame: trigger,
+            liveToggleFrame: trigger,
+            finalToggleFrame: trigger,
             visibleSegments: [Self.main]
         )
+        #expect(x == 1398)
+    }
+
+    @Test("Promotion follows the live trigger after it moves in the layout")
+    func promotionTracksLiveTrigger() {
+        let item = CGRect(x: 1000, y: 0, width: 24, height: 24)
+        let shiftedTrigger = CGRect(x: 1427, y: 1080, width: 0, height: 24)
+        let restoredTrigger = CGRect(x: 1373, y: 1080, width: 24, height: 24)
+
+        let x = StatusBarController.promotionTargetX(
+            itemFrame: item,
+            liveToggleFrame: shiftedTrigger,
+            finalToggleFrame: restoredTrigger,
+            visibleSegments: [Self.main]
+        )
+
+        #expect(x == 1425)
+    }
+
+    @Test("A zero-width live trigger remains a valid promotion anchor")
+    func promotionUsesReducedTrigger() {
+        let item = CGRect(x: 1000, y: 0, width: 24, height: 24)
+        let reducedTrigger = CGRect(x: 1400, y: 1080, width: 0, height: 24)
+        let restoredTrigger = CGRect(x: 1373, y: 1080, width: 24, height: 24)
+
+        let x = StatusBarController.promotionTargetX(
+            itemFrame: item,
+            liveToggleFrame: reducedTrigger,
+            finalToggleFrame: restoredTrigger,
+            visibleSegments: [Self.main]
+        )
+
         #expect(x == 1398)
     }
 
@@ -108,7 +141,8 @@ struct SafetyTests {
 
         #expect(StatusBarController.promotionTargetX(
             itemFrame: item,
-            toggleFrame: trigger,
+            liveToggleFrame: trigger,
+            finalToggleFrame: trigger,
             visibleSegments: [rightOfNotch]
         ) == nil)
     }

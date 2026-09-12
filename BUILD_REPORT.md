@@ -132,6 +132,8 @@ The packaged app is signed with the local Apple Development certificate so its p
 - Menu-bar geometry validation before synthetic events.
 - Negative X coordinates for displays left of the primary display.
 - Promotion target geometry for insertion immediately left of the FoldBar trigger.
+- Promotion targets the trigger's live frame after temporary width changes and
+  remains trigger-anchored when earlier promoted items occupy the visible section.
 - Post-drag visible-side and trigger-adjacency verification before re-collapsing.
 - Accessibility hover-label priority, generic-host rejection, and status-window matching.
 - Notch-overlap rejection for proxy-click forwarding.
@@ -207,3 +209,20 @@ The installed process launched successfully from the single intended path.
 Exact drag-preview appearance and the absence of a first-frame placeholder still
 require direct visual acceptance during a real menu-bar drag; no drop was
 completed during automated verification, so no real item order was changed.
+
+Follow-up promotion diagnostics on 2026-09-12 separated event delivery from
+post-drag placement. Two initial attempts posted complete synthetic drag
+sequences but left their items immediately on the managed side of the separator.
+After avoiding the unnecessary trigger-width reduction, one real promotion was
+observed and confirmed adjacent to the trigger. A subsequent promotion entered
+the visible section but stopped one already promoted item's width (`38 pt`) away
+from the trigger, showing that a separator-relative target cannot satisfy the
+required insertion order once the visible section is occupied. The current
+candidate therefore targets the live trigger frame after every layout adjustment
+while retaining fail-closed visible-side and adjacency verification. It is
+installed at `/Applications/FoldBar.app` with executable SHA-256
+`48ca06c5bfaaa383b1720ad75091da3f389258b32bcb902f2405c506cff8ec18`.
+The 38-test suite and signed universal Release build (`arm64` + `x86_64`) pass;
+two consecutive real promotions with this final target remain pending user
+acceptance. Correlated `Promotion` and `SyntheticDrag` unified-log categories
+remain enabled for that acceptance check.

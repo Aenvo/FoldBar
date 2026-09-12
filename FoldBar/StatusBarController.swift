@@ -1,4 +1,5 @@
 import AppKit
+import OSLog
 import ServiceManagement
 
 @MainActor
@@ -14,6 +15,10 @@ final class StatusBarController {
     private static let toggleAutosaveName = "foldbar_toggle"
     private static let separatorAutosaveName = "foldbar_separator"
     private static let combinedPermissionRequestKey = "didRequestCombinedPermissionsV1"
+    private static let promotionLogger = Logger(
+        subsystem: "local.foldbar.app",
+        category: "Promotion"
+    )
 
     private let toggleItem: NSStatusItem
     private let separatorItem: NSStatusItem
@@ -522,51 +527,91 @@ final class StatusBarController {
         _ item: MenuBarItemWindow,
         reportsFailure: Bool
     ) async -> Bool {
+        let diagnosticID = String(UUID().uuidString.prefix(8))
+        Self.promotionLogger.notice(
+            "promotion[\(diagnosticID, privacy: .public)] begin item=\(item.id, privacy: .public) cached=\(Self.frameDescription(item.frame), privacy: .public)"
+        )
         guard let originalToggleFrame = toggleItem.button?.window?.frame else {
+            Self.promotionLogger.error(
+                "promotion[\(diagnosticID, privacy: .public)] unavailable: toggle frame missing"
+            )
             if reportsFailure { showPromotionUnavailableAlert() }
             return false
         }
 
         let originalToggleLength = toggleItem.length
         let originalSeparatorLength = separatorItem.length
+        Self.promotionLogger.notice(
+            "promotion[\(diagnosticID, privacy: .public)] own-items toggle=\(Self.frameDescription(originalToggleFrame), privacy: .public) toggleLength=\(originalToggleLength, privacy: .public) separatorLength=\(originalSeparatorLength, privacy: .public)"
+        )
         defer {
             separatorItem.length = originalSeparatorLength
             toggleItem.length = originalToggleLength
         }
 
-        // macOS can keep otherwise valid status-item windows under the notch,
-        // where a synthetic mouse-down cannot begin AppKit's reorder gesture.
-        // Temporarily remove our trigger's footprint so WindowServer can move the
-        // requested item into the real, interactive right-hand menu-bar area.
-        toggleItem.length = 0
         var frame = await waitForStableMenuBarFrame(of: item.id)
+        Self.promotionLogger.notice(
+            "promotion[\(diagnosticID, privacy: .public)] expanded-layout item=\(Self.frameDescription(frame), privacy: .public)"
+        )
+
+        let visibleSegments = Self.activeVisibleMenuBarSegments()
+        // Preserve the live trigger as the placement anchor whenever the source
+        // is already interactive. Removing it unnecessarily shifts the
+        // separator into the saved target coordinate, which makes AppKit snap
+        // the promoted item back onto the managed side.
+        if frame.map({
+            !Self.isInVisibleMenuBarSegment($0, segments: visibleSegments)
+        }) ?? true {
+            toggleItem.length = 0
+            frame = await waitForStableMenuBarFrame(of: item.id)
+            Self.promotionLogger.notice(
+                "promotion[\(diagnosticID, privacy: .public)] after-toggle-zero item=\(Self.frameDescription(frame), privacy: .public)"
+            )
+        }
 
         // On a crowded bar the trigger alone may not free enough room. The
         // separator can also be reduced safely because its original order and
         // length are restored immediately after the mouse-up.
-        let visibleSegments = Self.activeVisibleMenuBarSegments()
         if frame.map({
             !Self.isInVisibleMenuBarSegment($0, segments: visibleSegments)
         }) ?? true {
             separatorItem.length = 0
             frame = await waitForStableMenuBarFrame(of: item.id)
+            Self.promotionLogger.notice(
+                "promotion[\(diagnosticID, privacy: .public)] after-separator-zero item=\(Self.frameDescription(frame), privacy: .public)"
+            )
         }
 
-        guard !Task.isCancelled else { return false }
+        guard !Task.isCancelled else {
+            Self.promotionLogger.notice(
+                "promotion[\(diagnosticID, privacy: .public)] cancelled during preparation"
+            )
+            return false
+        }
         guard let frame,
+              let liveSeparatorFrame = separatorItem.button?.window?.frame,
+              let liveToggleFrame = toggleItem.button?.window?.frame,
               Self.isInVisibleMenuBarSegment(frame, segments: visibleSegments),
               let targetX = Self.promotionTargetX(
                 itemFrame: frame,
-                toggleFrame: originalToggleFrame,
+                liveToggleFrame: liveToggleFrame,
+                finalToggleFrame: originalToggleFrame,
                 visibleSegments: visibleSegments
               ) else {
+            Self.promotionLogger.error(
+                "promotion[\(diagnosticID, privacy: .public)] unavailable: item=\(Self.frameDescription(frame), privacy: .public) visibleSegments=\(Self.frameDescriptions(visibleSegments), privacy: .public)"
+            )
             if reportsFailure { showPromotionUnavailableAlert() }
             return false
         }
 
+        Self.promotionLogger.notice(
+            "promotion[\(diagnosticID, privacy: .public)] dispatch item=\(Self.frameDescription(frame), privacy: .public) separator=\(Self.frameDescription(liveSeparatorFrame), privacy: .public) toggle=\(Self.frameDescription(liveToggleFrame), privacy: .public) targetX=\(targetX, privacy: .public)"
+        )
         let posted = await EventForwarder.commandDrag(
             from: CGPoint(x: frame.midX, y: frame.midY),
-            to: CGPoint(x: targetX, y: frame.midY)
+            to: CGPoint(x: targetX, y: frame.midY),
+            diagnosticID: diagnosticID
         )
 
         // Put FoldBar's own items back before checking which side of the
@@ -574,9 +619,20 @@ final class StatusBarController {
         separatorItem.length = originalSeparatorLength
         toggleItem.length = originalToggleLength
         guard (try? await Task.sleep(for: .milliseconds(140))) != nil,
-              !Task.isCancelled else { return false }
+              !Task.isCancelled else {
+            Self.promotionLogger.notice(
+                "promotion[\(diagnosticID, privacy: .public)] cancelled after dispatch"
+            )
+            return false
+        }
 
-        guard posted, await waitForPromotion(of: item.id) else {
+        let verified = posted
+            ? await waitForPromotion(of: item.id, diagnosticID: diagnosticID)
+            : false
+        guard posted, verified else {
+            Self.promotionLogger.error(
+                "promotion[\(diagnosticID, privacy: .public)] failed posted=\(posted, privacy: .public) verified=\(verified, privacy: .public)"
+            )
             guard !Task.isCancelled else { return false }
             if reportsFailure {
                 showAlert(
@@ -586,6 +642,9 @@ final class StatusBarController {
             }
             return false
         }
+        Self.promotionLogger.notice(
+            "promotion[\(diagnosticID, privacy: .public)] succeeded"
+        )
         return true
     }
 
@@ -895,24 +954,27 @@ final class StatusBarController {
 
     static func promotionTargetX(
         itemFrame: CGRect,
-        toggleFrame: CGRect,
+        liveToggleFrame: CGRect,
+        finalToggleFrame: CGRect,
         visibleSegments: [CGRect]
     ) -> CGFloat? {
         guard itemFrame.width > 0,
               itemFrame.width.isFinite,
-              toggleFrame.minX.isFinite,
+              liveToggleFrame.minX.isFinite,
+              finalToggleFrame.minX.isFinite,
               let segment = visibleSegments.first(where: {
                 Self.isInVisibleMenuBarSegment(itemFrame, segments: [$0])
-                    && toggleFrame.midX >= $0.minX
-                    && toggleFrame.midX <= $0.maxX
+                    && finalToggleFrame.midX >= $0.minX
+                    && finalToggleFrame.midX <= $0.maxX
               }) else { return nil }
 
-        // Stop just before the trigger's left edge. This crosses every item
-        // currently between the separator and the trigger, so AppKit inserts
-        // the promoted item in the nearest slot on the trigger's left instead
-        // of placing it among the ordinary items on the trigger's right.
-        let targetX = toggleFrame.minX - 2
-        let finalSlotMinX = toggleFrame.minX - itemFrame.width
+        // Stop at the live trigger rather than the separator. When earlier
+        // promotions already occupy the visible section, this crosses all of
+        // them and inserts the new item directly beside the trigger. The live
+        // frame also tracks any temporary width reduction used to clear the
+        // notch, avoiding a stale pre-layout coordinate.
+        let targetX = liveToggleFrame.minX - 2
+        let finalSlotMinX = finalToggleFrame.minX - itemFrame.width
         guard finalSlotMinX >= segment.minX - 1,
               targetX >= segment.minX,
               targetX <= segment.maxX else { return nil }
@@ -1000,20 +1062,39 @@ final class StatusBarController {
         return previous
     }
 
-    private func waitForPromotion(of id: CGWindowID) async -> Bool {
+    private func waitForPromotion(
+        of id: CGWindowID,
+        diagnosticID: String
+    ) async -> Bool {
         var stablePolls = 0
 
-        for _ in 0..<20 {
+        for poll in 1...20 {
             guard (try? await Task.sleep(for: .milliseconds(120))) != nil else { return false }
-            guard let frame = MenuBarItemScanner.frame(of: id),
-                  let separatorFrame = separatorItem.button?.window?.frame,
-                  let toggleFrame = toggleItem.button?.window?.frame,
-                  Self.isInMenuBarStrip(frame) else {
+            guard let frame = MenuBarItemScanner.frame(of: id) else {
+                Self.promotionLogger.notice(
+                    "promotion[\(diagnosticID, privacy: .public)] verify poll=\(poll, privacy: .public) item-window-missing"
+                )
                 stablePolls = 0
                 continue
             }
-            if Self.isOnVisibleSide(frame, separatorFrame: separatorFrame),
-               Self.isImmediatelyLeftOfToggle(frame, toggleFrame: toggleFrame) {
+            guard let separatorFrame = separatorItem.button?.window?.frame,
+                  let toggleFrame = toggleItem.button?.window?.frame else {
+                Self.promotionLogger.notice(
+                    "promotion[\(diagnosticID, privacy: .public)] verify poll=\(poll, privacy: .public) own-window-missing item=\(Self.frameDescription(frame), privacy: .public)"
+                )
+                stablePolls = 0
+                continue
+            }
+
+            let inStrip = Self.isInMenuBarStrip(frame)
+            let visible = Self.isOnVisibleSide(frame, separatorFrame: separatorFrame)
+            let adjacent = Self.isImmediatelyLeftOfToggle(frame, toggleFrame: toggleFrame)
+            let gap = toggleFrame.minX - frame.maxX
+            Self.promotionLogger.notice(
+                "promotion[\(diagnosticID, privacy: .public)] verify poll=\(poll, privacy: .public) item=\(Self.frameDescription(frame), privacy: .public) separator=\(Self.frameDescription(separatorFrame), privacy: .public) toggle=\(Self.frameDescription(toggleFrame), privacy: .public) inStrip=\(inStrip, privacy: .public) visible=\(visible, privacy: .public) adjacent=\(adjacent, privacy: .public) gap=\(gap, privacy: .public) stableBefore=\(stablePolls, privacy: .public)"
+            )
+
+            if inStrip, visible, adjacent {
                 stablePolls += 1
                 if stablePolls >= Self.promotionConfirmationPolls {
                     return true
@@ -1023,6 +1104,21 @@ final class StatusBarController {
             }
         }
         return false
+    }
+
+    private static func frameDescription(_ frame: CGRect?) -> String {
+        guard let frame else { return "nil" }
+        return String(
+            format: "x=%.1f,y=%.1f,w=%.1f,h=%.1f",
+            frame.minX,
+            frame.minY,
+            frame.width,
+            frame.height
+        )
+    }
+
+    private static func frameDescriptions(_ frames: [CGRect]) -> String {
+        frames.map { frameDescription($0) }.joined(separator: ";")
     }
 
     private func waitForImport(of id: CGWindowID) async -> Bool {
