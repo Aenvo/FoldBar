@@ -13,7 +13,7 @@ final class AppearanceSettingsPanel {
 
         let hosting = NSHostingView(rootView: AppearanceSettingsView())
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 430, height: 285),
+            contentRect: NSRect(x: 0, y: 0, width: 430, height: 390),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -32,6 +32,8 @@ final class AppearanceSettingsPanel {
 private struct AppearanceSettingsView: View {
     @AppStorage(PanelAppearance.defaultsKey)
     private var storedAppearance = PanelAppearance.currentMaterial.rawValue
+    @AppStorage(MenuBarDragSettings.directDragDefaultsKey)
+    private var directMenuBarDragEnabled = false
 
     private var appearance: PanelAppearance {
         PanelAppearance.decode(storedAppearance)
@@ -53,9 +55,25 @@ private struct AppearanceSettingsView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+
+            Section("菜单栏图标拖动") {
+                Toggle(
+                    "直接拖动菜单栏图标（无需 Command）",
+                    isOn: $directMenuBarDragEnabled
+                )
+
+                Text(
+                    directMenuBarDragEnabled
+                        ? "打开 FoldBar 面板后，直接把可见菜单栏图标拖到面板或箭头即可收纳；普通单击仍会打开原图标。"
+                        : "关闭时保持 macOS 原有方式：打开 FoldBar 面板后，按住 Command 再拖动菜单栏图标。"
+                )
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .formStyle(.grouped)
         .padding(4)
-        .frame(width: 430, height: 285)
+        .frame(width: 430, height: 390)
     }
 }

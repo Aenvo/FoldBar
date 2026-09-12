@@ -6,6 +6,11 @@ final class StatusBarController {
     private static let collapsedLength: CGFloat = 10_000
     private static let initialStablePolls = 3
     private static let initialMaxPolls = 45
+    private static let collapsedItemPollMilliseconds = 600
+    private static let maximumAutomaticPlacementBatch = 2
+    private static let automaticPlacementStabilizationMilliseconds = 10_000
+    private static let automaticPlacementRetryDelaysMilliseconds = [2_000]
+    private static let promotionConfirmationPolls = 3
     private static let toggleAutosaveName = "foldbar_toggle"
     private static let separatorAutosaveName = "foldbar_separator"
     private static let combinedPermissionRequestKey = "didRequestCombinedPermissionsV1"
@@ -13,6 +18,7 @@ final class StatusBarController {
     private let toggleItem: NSStatusItem
     private let separatorItem: NSStatusItem
     private let panel = OverflowPanel()
+    private let expandedMenuBarPanel = ExpandedMenuBarPanel()
     private let settingsPanel = AppearanceSettingsPanel()
 
     private var initialCollapseTask: Task<Void, Never>?
@@ -23,8 +29,12 @@ final class StatusBarController {
     private var externalDragCaptureTask: Task<Void, Never>?
     private var activationTask: Task<Void, Never>?
     private var promotionTask: Task<Void, Never>?
+    private var collapsedItemMonitorTask: Task<Void, Never>?
+    private var automaticPlacementTask: Task<Void, Never>?
     private var externalDragItemID: CGWindowID?
     private var cachedItems: [CapturedItem] = []
+    private var knownManagedWindowIDs: Set<CGWindowID> = []
+    private var isImportTargetingToggle = false
     private var preparingCollapse = false
     private var permissionFlowActive = false
     private(set) var isCollapsed = false
@@ -33,14 +43,14 @@ final class StatusBarController {
         onBegin: { [weak self] item, point in
             self?.beginExternalDrag(item, at: point)
         },
-        onUpdate: { [weak self] point, isInsidePanel in
-            self?.panel.updateExternalDrag(
-                atQuartzPoint: point,
-                isInsidePanel: isInsidePanel
-            )
+        onUpdate: { [weak self] point, target in
+            self?.updateExternalDrag(at: point, target: target)
         },
-        onEnd: { [weak self] item, point, isInsidePanel in
-            self?.finishExternalDrag(item, at: point, accepted: isInsidePanel)
+        onEnd: { [weak self] item, point, target in
+            self?.finishExternalDrag(item, at: point, target: target)
+        },
+        onClick: { [weak self] item, point in
+            self?.replayExternalClick(item, at: point)
         }
     )
 
@@ -98,6 +108,10 @@ final class StatusBarController {
     func expandForQuit() {
         initialCollapseTask?.cancel()
         cacheCaptureTask?.cancel()
+        collapsedItemMonitorTask?.cancel()
+        collapsedItemMonitorTask = nil
+        automaticPlacementTask?.cancel()
+        automaticPlacementTask = nil
         activationTask?.cancel()
         activationTask = nil
         promotionTask?.cancel()
@@ -106,6 +120,7 @@ final class StatusBarController {
         disarmAutoCollapse()
         disarmMenuBarImport()
         panel.close()
+        expandedMenuBarPanel.close()
         // Promotion and proxy activation can temporarily reduce FoldBar's own
         // status-item lengths beside a notch. Quitting restores both immediately.
         separatorItem.length = NSStatusItem.variableLength
@@ -141,8 +156,15 @@ final class StatusBarController {
 
     private func toggle() {
         if isCollapsed {
-            panel.isVisible ? panel.close() : openPanel()
+            if expandedMenuBarPanel.isVisible {
+                expandedMenuBarPanel.close()
+                updateToggleIcon()
+            } else {
+                panel.isVisible ? panel.close() : openPanel()
+            }
         } else {
+            automaticPlacementTask?.cancel()
+            automaticPlacementTask = nil
             collapse()
         }
     }
@@ -152,18 +174,27 @@ final class StatusBarController {
         initialCollapseTask?.cancel()
         initialCollapseTask = nil
         disarmAutoCollapse()
+        disarmCollapsedItemMonitor()
         panel.close()
+        expandedMenuBarPanel.close()
 
-        guard IconCapturer.hasPermission(),
-              let separatorFrame = separatorItem.button?.window?.frame else {
-            completeCollapse()
+        let windows: [MenuBarItemWindow]
+        if let separatorFrame = separatorItem.button?.window?.frame {
+            windows = MenuBarItemScanner.itemsLeft(of: separatorFrame.minX)
+        } else {
+            windows = []
+        }
+        let knownIDs = Set(windows.map(\.id))
+
+        guard IconCapturer.hasPermission(), !windows.isEmpty else {
+            if windows.isEmpty { cachedItems = [] }
+            completeCollapse(knownManagedWindowIDs: knownIDs)
             return
         }
 
         // Capture while the real items are already visible. The panel can then
         // open from memory with no flash-expand and no ScreenCaptureKit wait.
         preparingCollapse = true
-        let windows = MenuBarItemScanner.itemsLeft(of: separatorFrame.minX)
         cacheCaptureTask?.cancel()
         cacheCaptureTask = Task { @MainActor [weak self] in
             let captured = await IconCapturer.capture(windows)
@@ -171,21 +202,24 @@ final class StatusBarController {
             if !captured.isEmpty || windows.isEmpty {
                 self.cachedItems = captured
             }
-            self.completeCollapse()
+            self.completeCollapse(knownManagedWindowIDs: knownIDs)
         }
     }
 
-    private func completeCollapse() {
+    private func completeCollapse(knownManagedWindowIDs: Set<CGWindowID>) {
         preparingCollapse = false
         cacheCaptureTask = nil
         _ = MenuBarArrangement.captureAndSave()
         separatorItem.length = Self.collapsedLength
         isCollapsed = true
+        self.knownManagedWindowIDs = knownManagedWindowIDs
         updateToggleIcon()
+        armCollapsedItemMonitor()
     }
 
-    private func expand() {
+    private func expandRealMenuBar() {
         guard isCollapsed else { return }
+        disarmCollapsedItemMonitor()
         cacheCaptureTask?.cancel()
         cacheCaptureTask = nil
         preparingCollapse = false
@@ -193,13 +227,27 @@ final class StatusBarController {
         initialCollapseTask = nil
         disarmAutoCollapse()
         panel.close()
+        expandedMenuBarPanel.close()
         separatorItem.length = NSStatusItem.variableLength
         isCollapsed = false
         updateToggleIcon()
     }
 
     private func updateToggleIcon() {
-        toggleItem.button?.image = symbol(isCollapsed ? "chevron.down" : "chevron.up")
+        guard let button = toggleItem.button else { return }
+        if isImportTargetingToggle {
+            // Keep the same symbol while targeting so the status item's frame
+            // cannot shift underneath the fixed drop-target geometry.
+            button.image = symbol("chevron.down")
+            button.contentTintColor = .controlAccentColor
+            button.toolTip = "松手以收进 FoldBar"
+            return
+        }
+
+        let showsManagedItems = expandedMenuBarPanel.isVisible || !isCollapsed
+        button.image = symbol(showsManagedItems ? "chevron.up" : "chevron.down")
+        button.contentTintColor = nil
+        button.toolTip = "FoldBar"
     }
 
     private func symbol(_ name: String) -> NSImage? {
@@ -224,11 +272,8 @@ final class StatusBarController {
             return
         }
 
-        let hidden = MenuBarItemScanner.hiddenItems()
-        let cachedByID = Dictionary(uniqueKeysWithValues: cachedItems.map { ($0.id, $0) })
-        let items = MenuBarItemScanner.panelDisplayOrder(hidden).compactMap {
-            cachedByID[$0.id]
-        }
+        expandedMenuBarPanel.close()
+        let (hidden, items) = currentManagedItems()
         let anchor = toggleItem.button?.window?.frame ?? .zero
 
         guard !items.isEmpty || hidden.isEmpty else {
@@ -240,17 +285,163 @@ final class StatusBarController {
             below: anchor,
             onClick: { [weak self] item in self?.activate(item) },
             onPromote: { [weak self] item in self?.promoteToMenuBar(item) },
-            onExpand: { [weak self] in self?.expand() },
+            onExpand: { [weak self] in self?.showExpandedMenuBar() },
             onSettings: { [weak self] in self?.settingsPanel.show() },
             onDismiss: { [weak self] in self?.disarmMenuBarImport() }
         )
         armMenuBarImport()
     }
 
+    private func currentManagedItems() -> (
+        hidden: [MenuBarItemWindow],
+        captured: [CapturedItem]
+    ) {
+        let hidden = MenuBarItemScanner.hiddenItems()
+        let cachedByID = Dictionary(uniqueKeysWithValues: cachedItems.map { ($0.id, $0) })
+        let items = MenuBarItemScanner.panelDisplayOrder(hidden).compactMap {
+            cachedByID[$0.id]
+        }
+        return (hidden, items)
+    }
+
+    private func showExpandedMenuBar() {
+        guard isCollapsed else { return }
+        let (hidden, items) = currentManagedItems()
+        guard items.count == hidden.count,
+              !items.isEmpty,
+              let anchor = toggleItem.button?.window?.frame else {
+            showRestartForCacheAlert()
+            return
+        }
+
+        panel.close()
+        let shown = expandedMenuBarPanel.show(
+            items: items,
+            beside: anchor,
+            onClick: { [weak self] item in self?.activate(item) },
+            onDismiss: { [weak self] in self?.updateToggleIcon() }
+        )
+        if shown {
+            updateToggleIcon()
+        } else {
+            showAlert(
+                title: "无法展开菜单栏代理",
+                message: "FoldBar 箭头左侧没有可安全使用的菜单栏空间。你仍可在溢出面板中操作这些图标。"
+            )
+        }
+    }
+
+    // MARK: - Newly launched status items
+
+    private func armCollapsedItemMonitor() {
+        disarmCollapsedItemMonitor()
+        guard isCollapsed else { return }
+
+        collapsedItemMonitorTask = Task { @MainActor [weak self] in
+            while let self, self.isCollapsed, !Task.isCancelled {
+                guard (try? await Task.sleep(
+                    for: .milliseconds(Self.collapsedItemPollMilliseconds)
+                )) != nil else { return }
+                guard self.isCollapsed,
+                      !self.preparingCollapse,
+                      !self.panel.isVisible,
+                      !self.expandedMenuBarPanel.isVisible,
+                      self.activationTask == nil,
+                      self.promotionTask == nil,
+                      self.automaticPlacementTask == nil else { continue }
+
+                let hidden = MenuBarItemScanner.hiddenItems()
+                let currentIDs = Set(hidden.map(\.id))
+                self.knownManagedWindowIDs.formIntersection(currentIDs)
+                let added = MenuBarItemScanner.newlyManagedItems(
+                    among: hidden,
+                    excluding: self.knownManagedWindowIDs
+                )
+                guard !added.isEmpty else { continue }
+                self.knownManagedWindowIDs.formUnion(added.map(\.id))
+                self.beginAutomaticPlacement(of: added)
+                return
+            }
+        }
+    }
+
+    private func disarmCollapsedItemMonitor() {
+        collapsedItemMonitorTask?.cancel()
+        collapsedItemMonitorTask = nil
+    }
+
+    private func beginAutomaticPlacement(of items: [MenuBarItemWindow]) {
+        guard isCollapsed, automaticPlacementTask == nil else { return }
+        automaticPlacementTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.reconcileNewManagedItems(items)
+            self.automaticPlacementTask = nil
+        }
+    }
+
+    private func reconcileNewManagedItems(_ items: [MenuBarItemWindow]) async {
+        guard isCollapsed else { return }
+
+        // A newly registered NSStatusItem can already have a stable window
+        // frame while its hosting app is not yet ready to participate in a
+        // Command-drag reorder session. Give that session a short grace period
+        // before deciding whether the item belongs in the available space.
+        guard (try? await Task.sleep(
+            for: .milliseconds(Self.automaticPlacementStabilizationMilliseconds)
+        )) != nil,
+        !Task.isCancelled,
+        isCollapsed else { return }
+
+        var automaticallyVisibleIDs: Set<CGWindowID> = []
+
+        if items.count <= Self.maximumAutomaticPlacementBatch,
+           EventForwarder.isTrusted(),
+           let toggleFrame = toggleItem.button?.window?.frame {
+            var availableWidth = Self.availableAutomaticPlacementWidth(
+                toggleFrame: toggleFrame,
+                visibleSegments: Self.activeVisibleMenuBarSegments(),
+                statusItems: MenuBarItemScanner.statusWindows()
+            )
+            for item in items where item.frame.width <= availableWidth {
+                automaticallyVisibleIDs.insert(item.id)
+                availableWidth -= item.frame.width
+            }
+        }
+
+        expandRealMenuBar()
+
+        // Several simultaneous ID replacements usually mean Control Center
+        // rebuilt the hosted status windows. Refresh their proxies, but do not
+        // reinterpret a bulk host rebuild as several newly launched apps.
+        if !automaticallyVisibleIDs.isEmpty {
+            for item in items where automaticallyVisibleIDs.contains(item.id) {
+                guard !Task.isCancelled else { return }
+                for attempt in 0...Self.automaticPlacementRetryDelaysMilliseconds.count {
+                    if await moveToVisibleSide(item, reportsFailure: false) {
+                        break
+                    }
+                    guard attempt < Self.automaticPlacementRetryDelaysMilliseconds.count,
+                          (try? await Task.sleep(
+                            for: .milliseconds(
+                                Self.automaticPlacementRetryDelaysMilliseconds[attempt]
+                            )
+                          )) != nil,
+                          !Task.isCancelled else { break }
+                }
+            }
+        }
+
+        guard !Task.isCancelled else { return }
+        // Whether an item was promoted or remained overflow, recapture the
+        // expanded managed section so a restarted app's new window ID cannot
+        // disappear from the proxy cache.
+        collapse()
+    }
+
     private func activate(_ item: CapturedItem) {
         guard requireAccessibility() else { return }
         guard activationTask == nil, promotionTask == nil else { return }
-        expand()
+        expandRealMenuBar()
 
         activationTask = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -308,7 +499,7 @@ final class StatusBarController {
     private func promoteToMenuBar(_ item: CapturedItem) {
         guard requireAccessibility() else { return }
         guard promotionTask == nil else { return }
-        expand()
+        expandRealMenuBar()
 
         promotionTask = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -318,9 +509,19 @@ final class StatusBarController {
     }
 
     private func performPromotion(_ item: CapturedItem) async {
+        guard await moveToVisibleSide(item.window, reportsFailure: true) else { return }
+        // collapse() snapshots the newly ordered bar before parking the
+        // remaining overflow items again.
+        collapse()
+    }
+
+    private func moveToVisibleSide(
+        _ item: MenuBarItemWindow,
+        reportsFailure: Bool
+    ) async -> Bool {
         guard let originalToggleFrame = toggleItem.button?.window?.frame else {
-            showPromotionUnavailableAlert()
-            return
+            if reportsFailure { showPromotionUnavailableAlert() }
+            return false
         }
 
         let originalToggleLength = toggleItem.length
@@ -348,7 +549,7 @@ final class StatusBarController {
             frame = await waitForStableMenuBarFrame(of: item.id)
         }
 
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled else { return false }
         guard let frame,
               Self.isInVisibleMenuBarSegment(frame, segments: visibleSegments),
               let targetX = Self.promotionTargetX(
@@ -356,8 +557,8 @@ final class StatusBarController {
                 toggleFrame: originalToggleFrame,
                 visibleSegments: visibleSegments
               ) else {
-            showPromotionUnavailableAlert()
-            return
+            if reportsFailure { showPromotionUnavailableAlert() }
+            return false
         }
 
         let posted = await EventForwarder.commandDrag(
@@ -370,19 +571,19 @@ final class StatusBarController {
         separatorItem.length = originalSeparatorLength
         toggleItem.length = originalToggleLength
         guard (try? await Task.sleep(for: .milliseconds(140))) != nil,
-              !Task.isCancelled else { return }
+              !Task.isCancelled else { return false }
 
         guard posted, await waitForPromotion(of: item.id) else {
-            guard !Task.isCancelled else { return }
-            showAlert(
-                title: "图标没有移动成功",
-                message: "macOS 没有把这个图标放到 FoldBar 箭头左侧。菜单栏已保持展开，请按住 ⌘ 将它拖到箭头左侧并紧靠箭头。"
-            )
-            return
+            guard !Task.isCancelled else { return false }
+            if reportsFailure {
+                showAlert(
+                    title: "图标没有移动成功",
+                    message: "macOS 没有把这个图标放到 FoldBar 箭头左侧。菜单栏已保持展开，请按住 ⌘ 将它拖到箭头左侧并紧靠箭头。"
+                )
+            }
+            return false
         }
-        // collapse() snapshots the newly ordered bar before parking the
-        // remaining overflow items again.
-        collapse()
+        return true
     }
 
     private func showPromotionUnavailableAlert() {
@@ -398,16 +599,22 @@ final class StatusBarController {
         disarmMenuBarImport()
         guard panel.isVisible,
               EventForwarder.isTrusted(),
-              let panelFrame = panel.frame else { return }
+              let panelFrame = panel.frame,
+              let toggleFrame = toggleItem.button?.window?.frame else { return }
 
         let mainDisplayBounds = CGDisplayBounds(CGMainDisplayID())
-        let targetFrame = MenuBarCommandDragMonitor.quartzFrame(
+        let panelTargetFrame = MenuBarCommandDragMonitor.quartzFrame(
             fromAppKit: panelFrame,
+            mainDisplayBounds: mainDisplayBounds
+        )
+        let toggleTargetFrame = MenuBarCommandDragMonitor.quartzFrame(
+            fromAppKit: toggleFrame,
             mainDisplayBounds: mainDisplayBounds
         )
         guard menuBarImportMonitor.start(
             candidates: currentImportCandidates(),
-            targetFrame: targetFrame
+            panelTargetFrame: panelTargetFrame,
+            toggleTargetFrame: toggleTargetFrame
         ) else { return }
 
         importCandidateRefreshTask = Task { @MainActor [weak self] in
@@ -426,6 +633,7 @@ final class StatusBarController {
         externalDragCaptureTask = nil
         externalDragItemID = nil
         menuBarImportMonitor.stop()
+        setImportTargetingToggle(false)
     }
 
     private func currentImportCandidates() -> [MenuBarItemWindow] {
@@ -463,6 +671,7 @@ final class StatusBarController {
 
     private func beginExternalDrag(_ item: MenuBarItemWindow, at point: CGPoint) {
         externalDragItemID = item.id
+        setImportTargetingToggle(false)
         panel.beginExternalDrag(image: nil, atQuartzPoint: point)
         externalDragCaptureTask?.cancel()
         externalDragCaptureTask = Task { @MainActor [weak self] in
@@ -475,18 +684,61 @@ final class StatusBarController {
         }
     }
 
+    private func updateExternalDrag(
+        at point: CGPoint,
+        target: MenuBarImportDropTarget?
+    ) {
+        panel.updateExternalDrag(
+            atQuartzPoint: point,
+            isInsidePanel: target == .panel
+        )
+        setImportTargetingToggle(target == .toggle)
+    }
+
+    private func setImportTargetingToggle(_ isTargeted: Bool) {
+        guard isImportTargetingToggle != isTargeted else { return }
+        isImportTargetingToggle = isTargeted
+        updateToggleIcon()
+    }
+
+    private func replayExternalClick(_ item: MenuBarItemWindow, at point: CGPoint) {
+        // The event tap consumed the original plain mouse-down. Wait for its
+        // callback to return before closing the panel and replaying one marked
+        // click that the import monitor will never claim again.
+        Task { @MainActor [weak self] in
+            await Task.yield()
+            guard let self else { return }
+            self.panel.close()
+            await Task.yield()
+
+            guard self.isCollapsed,
+                  let frame = MenuBarItemScanner.frame(of: item.id),
+                  let separatorFrame = self.separatorItem.button?.window?.frame,
+                  Self.isInMenuBarStrip(frame),
+                  Self.isOnVisibleSide(frame, separatorFrame: separatorFrame),
+                  frame.insetBy(dx: -2, dy: -2).contains(point)
+            else { return }
+
+            EventForwarder.click(
+                at: point,
+                eventUserData: MenuBarCommandDragMonitor.replayedClickEventMarker
+            )
+        }
+    }
+
     private func finishExternalDrag(
         _ item: MenuBarItemWindow,
         at point: CGPoint,
-        accepted: Bool
+        target: MenuBarImportDropTarget?
     ) {
         guard externalDragItemID == item.id else { return }
         externalDragCaptureTask?.cancel()
         externalDragCaptureTask = nil
         externalDragItemID = nil
-        panel.updateExternalDrag(atQuartzPoint: point, isInsidePanel: accepted)
+        panel.updateExternalDrag(atQuartzPoint: point, isInsidePanel: target == .panel)
         panel.endExternalDrag()
-        guard accepted else { return }
+        setImportTargetingToggle(false)
+        guard target != nil else { return }
 
         // Defer teardown until the event-tap callback has returned the consumed
         // mouse-up. Invalidating a tap from inside its own callback is fragile.
@@ -500,7 +752,7 @@ final class StatusBarController {
 
     private func importIntoFoldBar(_ item: MenuBarItemWindow) {
         guard requireAccessibility() else { return }
-        expand()
+        expandRealMenuBar()
 
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -638,6 +890,29 @@ final class StatusBarController {
         return targetX
     }
 
+    static func availableAutomaticPlacementWidth(
+        toggleFrame: CGRect,
+        visibleSegments: [CGRect],
+        statusItems: [MenuBarItemWindow]
+    ) -> CGFloat {
+        guard let segment = visibleSegments.first(where: {
+            toggleFrame.midX >= $0.minX && toggleFrame.midX <= $0.maxX
+        }) else { return 0 }
+
+        let itemsLeftOfToggle = statusItems.filter { item in
+            item.frame.width > 0
+                && item.frame.width < 500
+                && item.frame.height <= 40
+                && item.frame.maxX <= toggleFrame.minX + 1
+                && item.frame.maxX >= segment.minX - 1
+                && item.frame.minY >= segment.minY - 2
+                && item.frame.maxY <= segment.maxY + 2
+        }
+        let occupiedMinX = itemsLeftOfToggle.map(\.frame.minX).min() ?? toggleFrame.minX
+        guard occupiedMinX >= segment.minX else { return 0 }
+        return max(0, occupiedMinX - segment.minX)
+    }
+
     static func isImmediatelyLeftOfToggle(
         _ frame: CGRect,
         toggleFrame: CGRect
@@ -697,15 +972,25 @@ final class StatusBarController {
     }
 
     private func waitForPromotion(of id: CGWindowID) async -> Bool {
-        for _ in 0..<12 {
+        var stablePolls = 0
+
+        for _ in 0..<20 {
             guard (try? await Task.sleep(for: .milliseconds(120))) != nil else { return false }
             guard let frame = MenuBarItemScanner.frame(of: id),
                   let separatorFrame = separatorItem.button?.window?.frame,
                   let toggleFrame = toggleItem.button?.window?.frame,
-                  Self.isInMenuBarStrip(frame) else { continue }
+                  Self.isInMenuBarStrip(frame) else {
+                stablePolls = 0
+                continue
+            }
             if Self.isOnVisibleSide(frame, separatorFrame: separatorFrame),
                Self.isImmediatelyLeftOfToggle(frame, toggleFrame: toggleFrame) {
-                return true
+                stablePolls += 1
+                if stablePolls >= Self.promotionConfirmationPolls {
+                    return true
+                }
+            } else {
+                stablePolls = 0
             }
         }
         return false

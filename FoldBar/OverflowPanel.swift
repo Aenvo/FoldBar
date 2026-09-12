@@ -424,7 +424,7 @@ private struct OverflowPanelView: View {
                 .help("展开左侧真实菜单栏图标，并保持展开")
                 Button("设置", action: onSettings)
                     .buttonStyle(.borderless)
-                    .help("选择悬浮面板外观")
+                    .help("设置面板外观和菜单栏拖动方式")
             }
             .padding(.bottom, 4)
 

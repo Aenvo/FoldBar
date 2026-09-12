@@ -10,12 +10,12 @@ enum EventForwarder {
         AXIsProcessTrustedWithOptions(options)
     }
 
-    static func click(at point: CGPoint) {
+    static func click(at point: CGPoint, eventUserData: Int64? = nil) {
         let previous = CGEvent(source: nil)?.location
-        postMouse(.mouseMoved, at: point)
-        postMouse(.leftMouseDown, at: point, clickState: 1)
-        postMouse(.leftMouseUp, at: point, clickState: 1)
-        if let previous { postMouse(.mouseMoved, at: previous) }
+        postMouse(.mouseMoved, at: point, eventUserData: eventUserData)
+        postMouse(.leftMouseDown, at: point, clickState: 1, eventUserData: eventUserData)
+        postMouse(.leftMouseUp, at: point, clickState: 1, eventUserData: eventUserData)
+        if let previous { postMouse(.mouseMoved, at: previous, eventUserData: eventUserData) }
     }
 
     /// Reorders a real NSStatusItem using the same Command-drag gesture the
@@ -82,7 +82,8 @@ enum EventForwarder {
         at point: CGPoint,
         source: CGEventSource? = nil,
         flags: CGEventFlags = [],
-        clickState: Int64? = nil
+        clickState: Int64? = nil,
+        eventUserData: Int64? = nil
     ) -> Bool {
         guard let event = CGEvent(
             mouseEventSource: source,
@@ -93,6 +94,9 @@ enum EventForwarder {
         event.flags = flags
         if let clickState {
             event.setIntegerValueField(.mouseEventClickState, value: clickState)
+        }
+        if let eventUserData {
+            event.setIntegerValueField(.eventSourceUserData, value: eventUserData)
         }
         event.post(tap: .cghidEventTap)
         return true

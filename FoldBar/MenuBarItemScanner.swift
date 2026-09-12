@@ -75,6 +75,13 @@ enum MenuBarItemScanner {
         }
     }
 
+    static func newlyManagedItems(
+        among windows: [MenuBarItemWindow],
+        excluding knownIDs: Set<CGWindowID>
+    ) -> [MenuBarItemWindow] {
+        panelDisplayOrder(windows.filter { !knownIDs.contains($0.id) })
+    }
+
     static func frame(of id: CGWindowID) -> CGRect? {
         statusWindows().first { $0.id == id }?.frame
     }

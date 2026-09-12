@@ -66,6 +66,20 @@ struct ScannerTests {
         #expect(found.map(\.id) == [4, 3, 2])
     }
 
+    @Test("Only new managed window IDs are reconciled after collapse")
+    func newlyManagedItems() {
+        let oldLeft = Self.window(2, x: -4300, width: 30)
+        let oldRight = Self.window(3, x: -4260, width: 30)
+        let launchedLater = Self.window(9, x: -4340, width: 34)
+
+        let found = MenuBarItemScanner.newlyManagedItems(
+            among: [oldLeft, launchedLater, oldRight],
+            excluding: [oldLeft.id, oldRight.id]
+        )
+
+        #expect(found.map(\.id) == [launchedLater.id])
+    }
+
     @Test("Generic Control Center ownership is not presented as item identity")
     func genericDisplayName() {
         let item = MenuBarItemWindow(

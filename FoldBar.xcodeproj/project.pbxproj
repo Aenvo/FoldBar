@@ -11,6 +11,7 @@
 		0EF6BAB05385AFEA3ED7DB7F /* PanelAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46840FF2492E027B55B8E301 /* PanelAppearance.swift */; };
 		559949813EBA8F613549B8CE /* AppearanceSettingsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A222620E7875F71AA42C587 /* AppearanceSettingsPanel.swift */; };
 		76652A3466F9F4C3A767115A /* IconCapturer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF704A9F6E40EC2F93ACBCD5 /* IconCapturer.swift */; };
+		7668B818B06CD04F2B0F11EB /* ExpandedMenuBarPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C1A7F3D5EAEADE2886A01A9 /* ExpandedMenuBarPanel.swift */; };
 		799DB327F6CE948A86E66218 /* MenuBarArrangement.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEFD743830B0B3A49D7B8F00 /* MenuBarArrangement.swift */; };
 		7F3C5D9F80444A51F5688B6A /* OverflowPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D754856CB766382F2A732E7 /* OverflowPanel.swift */; };
 		8E1D38C34C8541C415837783 /* MenuBarCommandDragMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC8EB8974C9F69262A89BE0A /* MenuBarCommandDragMonitor.swift */; };
@@ -35,6 +36,7 @@
 
 /* Begin PBXFileReference section */
 		06443CFD70DBFB74187DB17A /* SafetyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafetyTests.swift; sourceTree = "<group>"; };
+		3C1A7F3D5EAEADE2886A01A9 /* ExpandedMenuBarPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExpandedMenuBarPanel.swift; sourceTree = "<group>"; };
 		46840FF2492E027B55B8E301 /* PanelAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelAppearance.swift; sourceTree = "<group>"; };
 		4F7E1047B214A889A6F7A075 /* FoldBarApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoldBarApp.swift; sourceTree = "<group>"; };
 		57F1F6CC7E3187F59CD31EC4 /* FoldBar.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FoldBar.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -67,6 +69,7 @@
 			children = (
 				9A222620E7875F71AA42C587 /* AppearanceSettingsPanel.swift */,
 				FE9EE71362C03109F2B75205 /* EventForwarder.swift */,
+				3C1A7F3D5EAEADE2886A01A9 /* ExpandedMenuBarPanel.swift */,
 				4F7E1047B214A889A6F7A075 /* FoldBarApp.swift */,
 				FF704A9F6E40EC2F93ACBCD5 /* IconCapturer.swift */,
 				EEFD743830B0B3A49D7B8F00 /* MenuBarArrangement.swift */,
@@ -192,6 +195,7 @@
 			files = (
 				559949813EBA8F613549B8CE /* AppearanceSettingsPanel.swift in Sources */,
 				09FE8205C6F7D6FBA0B5A35F /* EventForwarder.swift in Sources */,
+				7668B818B06CD04F2B0F11EB /* ExpandedMenuBarPanel.swift in Sources */,
 				ACDE29DAF0C376AE59E2EAA1 /* FoldBarApp.swift in Sources */,
 				76652A3466F9F4C3A767115A /* IconCapturer.swift in Sources */,
 				799DB327F6CE948A86E66218 /* MenuBarArrangement.swift in Sources */,

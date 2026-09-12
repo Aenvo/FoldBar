@@ -113,6 +113,53 @@ struct SafetyTests {
         ) == nil)
     }
 
+    @Test("Automatic placement measures free space beside the collapsed trigger")
+    func automaticPlacementCapacity() {
+        let rightOfNotch = CGRect(x: 948, y: 0, width: 762, height: 40)
+        let trigger = CGRect(x: 1359, y: 1073, width: 31, height: 34)
+        let visibleItem = MenuBarItemWindow(
+            id: 7,
+            frame: CGRect(x: 1291, y: 0, width: 68, height: 34),
+            ownerName: "Example",
+            windowName: "Item-0"
+        )
+
+        #expect(StatusBarController.availableAutomaticPlacementWidth(
+            toggleFrame: trigger,
+            visibleSegments: [rightOfNotch],
+            statusItems: [visibleItem]
+        ) == 343)
+
+        let alreadyOverflowing = MenuBarItemWindow(
+            id: 8,
+            frame: CGRect(x: 928, y: 0, width: 34, height: 34),
+            ownerName: "Example",
+            windowName: "Item-0"
+        )
+        #expect(StatusBarController.availableAutomaticPlacementWidth(
+            toggleFrame: trigger,
+            visibleSegments: [rightOfNotch],
+            statusItems: [visibleItem, alreadyOverflowing]
+        ) == 0)
+    }
+
+    @Test("Expanded proxies anchor to the trigger and stay inside the usable menu bar")
+    func expandedMenuBarFrame() {
+        let visibleArea = CGRect(x: 948, y: 1073, width: 762, height: 34)
+        let trigger = CGRect(x: 1359, y: 1073, width: 31, height: 34)
+
+        #expect(ExpandedMenuBarLayout.frame(
+            beside: trigger,
+            inside: visibleArea,
+            contentWidth: 334
+        ) == CGRect(x: 1025, y: 1073, width: 334, height: 34))
+        #expect(ExpandedMenuBarLayout.frame(
+            beside: trigger,
+            inside: visibleArea,
+            contentWidth: 600
+        ) == CGRect(x: 948, y: 1073, width: 411, height: 34))
+    }
+
     @Test("Import target puts the entire item on the managed side")
     func importTarget() {
         let item = CGRect(x: 1200, y: 0, width: 24, height: 24)
@@ -173,6 +220,61 @@ struct SafetyTests {
         #expect(MenuBarCommandDragMonitor.sourceWindow(
             at: CGPoint(x: 900, y: 400),
             among: [item]
+        ) == nil)
+    }
+
+    @Test("Direct drag only claims an unmodified left mouse gesture when enabled")
+    func directDragMouseDownEligibility() {
+        #expect(MenuBarCommandDragMonitor.acceptsDirectDragMouseDown(
+            flags: [],
+            allowsDirectDrag: true
+        ))
+        #expect(!MenuBarCommandDragMonitor.acceptsDirectDragMouseDown(
+            flags: [],
+            allowsDirectDrag: false
+        ))
+        #expect(!MenuBarCommandDragMonitor.acceptsDirectDragMouseDown(
+            flags: .maskAlternate,
+            allowsDirectDrag: true
+        ))
+        #expect(!MenuBarCommandDragMonitor.acceptsDirectDragMouseDown(
+            flags: .maskShift,
+            allowsDirectDrag: true
+        ))
+    }
+
+    @Test("Direct drag waits for deliberate pointer movement")
+    func directDragThreshold() {
+        let start = CGPoint(x: 1200, y: 12)
+        #expect(!MenuBarCommandDragMonitor.exceedsDirectDragThreshold(
+            from: start,
+            to: CGPoint(x: 1203, y: 15)
+        ))
+        #expect(MenuBarCommandDragMonitor.exceedsDirectDragThreshold(
+            from: start,
+            to: CGPoint(x: 1205, y: 12)
+        ))
+    }
+
+    @Test("External menu-bar drags can target either the panel or FoldBar arrow")
+    func menuBarImportDropTargets() {
+        let panel = CGRect(x: 1200, y: 50, width: 280, height: 220)
+        let toggle = CGRect(x: 1480, y: 0, width: 30, height: 34)
+
+        #expect(MenuBarCommandDragMonitor.dropTarget(
+            at: CGPoint(x: 1300, y: 100),
+            panelFrame: panel,
+            toggleFrame: toggle
+        ) == .panel)
+        #expect(MenuBarCommandDragMonitor.dropTarget(
+            at: CGPoint(x: 1495, y: 17),
+            panelFrame: panel,
+            toggleFrame: toggle
+        ) == .toggle)
+        #expect(MenuBarCommandDragMonitor.dropTarget(
+            at: CGPoint(x: 1000, y: 400),
+            panelFrame: panel,
+            toggleFrame: toggle
         ) == nil)
     }
 

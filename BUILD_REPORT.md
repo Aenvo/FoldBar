@@ -1,11 +1,11 @@
 # FoldBar build report
 
-Verified locally on 2026-09-11 with Xcode 26.6 (17F113), Swift 6.3.3, and the macOS 26.5 SDK.
+Verified locally on 2026-09-11 with Xcode 26.6 (17F113), Swift 6.3.3, and the macOS 26.5 SDK. The test suite was re-run on 2026-09-12 after removing the rejected drag-session primer.
 
 ## Results
 
 - Debug app-hosted test build: passed.
-- Swift Testing: 30 tests passed.
+- Swift Testing: 36 tests passed.
 - Release build: passed with no source compiler warnings.
 - Release binary: universal `arm64` + `x86_64`.
 - Deployment target: macOS 14.0.
@@ -58,6 +58,13 @@ as `CGWindowID` values instead of trapping during panel opening. When an own
 status item has no usable Core Graphics window ID, its horizontal frame is used
 as a fallback exclusion so FoldBar cannot select its own trigger as an import
 source.
+The `feat/direct-menu-bar-drag-setting` candidate keeps Command-drag available
+and adds an opt-in setting for unmodified menu-bar drags while the overflow
+panel is open. A five-point movement threshold separates dragging from clicking;
+an ordinary click is replayed once with an event marker after the panel closes.
+Both the overflow panel and FoldBar's arrow accept a drop, with the arrow showing
+an accent-colored target state. The setting is read on every new mouse-down, so
+changes apply without reopening the panel.
 The panel now derives its presentation order from the live hidden windows in
 right-to-left order, placing the item nearest the menu-bar right first and the
 farthest-left/system-overflow item last. Promotion temporarily reduces FoldBar's
@@ -87,6 +94,15 @@ width, and then its separator width only when necessary, so far-left managed
 items can clear the notch without changing their saved order. Every exit path
 restores both widths; a target that still cannot become fully clickable receives
 no synthetic event and leaves the bar expanded for manual interaction.
+The current late-item candidate monitors the collapsed managed section for new
+window IDs, waits ten seconds for registration to settle, measures free space
+beside FoldBar's trigger, and attempts at most two automatic placements. It
+performs one delayed retry and requires three consecutive adjacency checks
+before accepting a move. Whether placement succeeds or falls back to overflow,
+the expanded section is recaptured so restarted items do not disappear from the
+proxy cache. The overflow panel's Expand action now presents those cached,
+clickable proxies across the usable menu-bar area immediately left of the
+trigger instead of exposing the real hidden section.
 
 ## Packaged artifact
 
@@ -114,6 +130,8 @@ The packaged app is signed with the local Apple Development certificate so its p
 - Accessibility hover-label priority, generic-host rejection, and status-window matching.
 - Notch-overlap rejection for proxy-click forwarding.
 - Command-drag source-window selection for menu-bar-to-panel import.
+- Opt-in direct-drag modifier eligibility and five-point drag threshold.
+- Panel and FoldBar-arrow import drop-target selection.
 - Safe rejection of negative and out-of-range AppKit window numbers.
 - Own-status-item frame fallback when no usable Core Graphics window ID exists.
 - AppKit-to-Quartz panel coordinate conversion.
@@ -124,6 +142,9 @@ The packaged app is signed with the local Apple Development certificate so its p
 - Right-to-left overflow-panel presentation order.
 - Visible menu-bar-segment validation, including overlapping X ranges on different displays.
 - Adaptive one-, two-, and three-column spans for wide status items.
+- Detection of newly registered managed-window IDs and free-space calculation
+  for automatic placement.
+- Menu-bar overlay clamping and proxy layout for the expanded presentation.
 
 The earlier 0.1.0 build was interactively tested and exposed the permission repetition, visible capture flash, and aspect-ratio defects addressed in 0.2.0. The signed `feat/panel-command-drag-import` candidate is installed and launches from `/Applications/FoldBar.app`. After the window-ID fix, the installed trigger was exercised through System Events: the panel opened, remained alive across multiple candidate-refresh intervals, closed normally, and produced no new crash report. On 2026-09-11, the user then reported that the installed real-menu-bar Command-drag import acceptance path succeeded. The outside-panel cancellation path was not reported separately and remains pending.
 
@@ -160,7 +181,22 @@ segment and produced CodexSquad's on-screen `430 x 494` panel. FoldBar then
 restored its own widths, closed the external panel during cleanup, and returned
 to the collapsed state without a Command-drag or item-order change.
 
-The verified universal candidate is installed at `/Applications/FoldBar.app`
+On 2026-09-12, the expanded proxy strip was observed across the menu-bar area
+left of FoldBar's trigger, and clicking its CodexSquad proxy opened the intended
+application panel. A separate cold-start late-item test detected the replacement
+CodexSquad window, expanded the real menu bar after the stabilization delay, and
+performed the configured retry. Neither attempt passed the final position
+verification: the item returned to the hidden side after collapse rather than
+remaining adjacent to FoldBar's trigger. Therefore automatic real-item placement
+from a fresh process is not accepted as reliable. The experimental transparent-window
+drag-session primer was removed from both working trees; the remaining behavior
+falls back to overflow and refreshed proxies.
+
+An earlier candidate remains installed at `/Applications/FoldBar.app`
 with bundle identifier `local.foldbar.app`, Apple Development team
 `42MUMXKY79`, and executable SHA-256
-`6779f292d2fc731bda98e6ac5be8c1eea8544e82a4c975fe224e02cdc71733a1`.
+`d0e3831ab4c40e27eeb326773b3aff76b85289cf108ae6f9d39c3a02cf7f8cd9`.
+The newer `feat/direct-menu-bar-drag-setting` working-tree candidate passed the
+36-test suite and a signed universal Release build (`arm64` + `x86_64`) in an
+isolated temporary DerivedData directory. It was not installed, packaged, or
+used to change any real menu-bar item order.
