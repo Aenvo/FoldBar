@@ -169,6 +169,15 @@ final class MenuBarCommandDragMonitor {
         )
     }
 
+    static func appKitFrame(fromQuartz frame: CGRect, mainDisplayBounds: CGRect) -> CGRect {
+        CGRect(
+            x: frame.minX,
+            y: mainDisplayBounds.maxY - frame.maxY,
+            width: frame.width,
+            height: frame.height
+        )
+    }
+
     static func appKitPoint(fromQuartz point: CGPoint, mainDisplayBounds: CGRect) -> CGPoint {
         CGPoint(x: point.x, y: mainDisplayBounds.maxY - point.y)
     }

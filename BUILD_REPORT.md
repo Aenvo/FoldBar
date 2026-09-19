@@ -1,5 +1,82 @@
 # FoldBar build report
 
+## macOS 27 compatibility candidate — 2026-09-19
+
+Verified on macOS 27.0 (26A428) with Xcode 27.0 (27A266a), Swift 6.4, and
+the macOS 27.0 SDK.
+
+- Branch: `fix/macos-27-compatibility`.
+- Debug app-hosted test run: passed; all 61 Swift Testing cases passed.
+- Release build: passed with no source compiler warnings.
+- Release binary: universal `x86_64` + `arm64`.
+- Code-signature structural verification (`codesign --verify --deep --strict`): passed.
+- Installed executable SHA-256:
+  `1adb80ec411604b6ec8206f49bade3995a36d07029cc0c28498764882f6817db`.
+- Installed-runtime check: the exact `/Applications/FoldBar.app` candidate
+  launched successfully as PID 32648. The 61st automated case verifies the new
+  non-clipping optical-centering geometry; fresh user visual acceptance of that
+  final delta remains pending.
+
+macOS 27 no longer exposes each third-party menu extra as an individual
+WindowServer or ScreenCaptureKit window. The candidate therefore selects a
+public Accessibility inventory on macOS 27 and newer, keeps the existing
+Core Graphics / ScreenCaptureKit window path on macOS 14–26, and uses public
+Accessibility identities on macOS 27. A system-overflow item can retain an
+Accessibility frame while no longer owning the pixels at that coordinate;
+capturing the rectangle can therefore copy the native `«` control or another
+system indicator. Before entering FoldBar's collapsed state, the candidate uses
+the public native overflow control to expose the real status artwork, waits for
+both geometry and rendered foreground pixels, captures those pixels, removes
+the menu-bar background, and restores native overflow. The resulting in-memory
+templates preserve the actual menu-bar glyph, aspect ratio, visual size, and
+centering instead of substituting the owning application's icon. A
+background-only capture is rejected and retried rather than cached as a blank
+cell.
+
+The managed items remain in the same left-to-right order as the real menu bar.
+Near-square captured glyphs now place their alpha-weighted visual centre on the
+nearest pixel-aligned canvas centre before SwiftUI lays them out. The canvas is
+expanded with transparent pixels when necessary, so asymmetric artwork is not
+clipped or shifted to the right; wide text meters retain their geometric crop.
+On macOS 27, the system-owned `«` control is the source of truth for real
+overflow visibility. FoldBar no longer places a background or click-blocking
+window over those coordinates; doing so reserved the same space twice and was
+the cause of the reported empty menu-bar gap. The panel action is labelled
+Close on macOS 27, while macOS 14–26 retain the legacy Expand behavior.
+
+Accessibility scanning runs on a utility task and publishes a short-lived
+MainActor cache. Synthetic item identifiers are deterministic and occupy a
+reserved range. Before an Accessibility-backed proxy click or synthetic
+Command-drag, FoldBar re-resolves the owning process, bundle identifier, item
+ordinal, semantic label when needed, and live frame. Any mismatch fails closed
+and leaves the real menu bar available for manual operation.
+
+Live diagnosis reproduced all reported regressions and identified the former
+188-point, layer-26 FoldBar mask as the empty region. A system-only baseline had
+no gap. The macOS 27 native overflow boundary also explained the duplicates:
+visible items had been classified relative to FoldBar's legacy separator rather
+than MenuBarAgent's `«`. Final installed-app screenshots confirmed that the gap
+is gone; the panel contains only the three native-hidden applications, while the
+real menu bar contains a different visible set; and the panel glyphs are the
+same CodexSquad four-diamond, ChatGPT knot, and Lemon hexagon shapes shown by the
+system-expanded menu bar. The macOS 27 action reads Close. Closing the panel
+leaves no FoldBar-owned on-screen window. The original pre-fix install remains
+recoverable at
+`~/.Trash/FoldBar.app.backup-20260919-154523`; the immediately preceding
+installed candidate is recoverable at
+`~/.Trash/FoldBar.app.backup-20260919-1852-optical-center`. Intermediate
+candidates were also moved to the Trash rather than deleted.
+
+Direct-drag acceptance used a temporary test status item so no real application
+was reordered. With direct drag enabled, the item moved from the native-visible
+frame at `x=1238` into the native-hidden frame at `x=987`; its trailing edge
+aligned with the live `«` boundary at `x=1004.5`. Reopening FoldBar showed that
+fourth item only in the panel. Terminating the temporary process removed it and
+restored the user's original status-item set. No acceptance step changed the
+user's real menu-bar order.
+
+## Historical macOS 26 baseline
+
 Verified locally on 2026-09-12 with Xcode 26.6 (17F113), Swift 6.3.3, and the macOS 26.5 SDK.
 
 ## Results
@@ -149,7 +226,11 @@ The packaged app is signed with the local Apple Development certificate so its p
 - Post-drag managed-side verification before re-collapsing.
 - Defensive position snapshot merge and restore filtering.
 - Expanded-section discovery used for flash-free pre-collapse caching.
-- Right-to-left overflow-panel presentation order.
+- Left-to-right overflow-panel presentation order matching the real menu bar.
+- macOS 27 native-overflow hidden/visible partition, fail-closed missing-boundary
+  behavior, and language-independent expanded-state geometry.
+- Native-size template rendering, internal detail contrast, transparent-margin
+  trimming, and non-clipping alpha-weighted optical centering for square glyphs.
 - Visible menu-bar-segment validation, including overlapping X ranges on different displays.
 - Adaptive one-, two-, and three-column spans for wide status items.
 - Detection of newly registered managed-window IDs and free-space calculation

@@ -61,10 +61,12 @@ private struct IconDragPreviewSurface: View {
                     shape.strokeBorder(Color.blue.opacity(0.65), lineWidth: 1)
                 }
             Image(nsImage: image)
+                .renderingMode(image.isTemplate ? .template : .original)
                 .resizable()
                 .interpolation(.high)
                 .scaledToFit()
                 .frame(maxWidth: width - 12, maxHeight: iconMaxHeight)
+                .foregroundStyle(.primary)
         }
         .frame(width: width, height: height)
         .preferredColorScheme(
@@ -207,6 +209,7 @@ final class OverflowPanel {
     func show(
         items: [CapturedItem],
         below anchorFrame: NSRect,
+        usesSystemOverflow: Bool,
         onClick: @escaping @MainActor (CapturedItem) -> Void,
         onPromote: @escaping @MainActor (CapturedItem) -> Void,
         onExpand: @escaping @MainActor () -> Void,
@@ -221,6 +224,7 @@ final class OverflowPanel {
         let content = OverflowPanelView(
             items: items,
             dragState: dragState,
+            usesSystemOverflow: usesSystemOverflow,
             onClick: { [weak self] item in
                 Task { @MainActor in
                     self?.close()
@@ -384,9 +388,39 @@ enum OverflowGridLayout {
     }
 }
 
+enum OverflowIconLayout {
+    /// AX menu extras on current macOS releases use a 24-point content frame.
+    /// Preserve that native logical size in the panel instead of enlarging
+    /// every capture to fill its cell. Wide text meters may still shrink when
+    /// their grid span is narrower than the original menu-bar item.
+    static let menuBarHeight: CGFloat = 24
+
+    static func displaySize(
+        sourceSize: CGSize,
+        availableWidth: CGFloat,
+        maximumHeight: CGFloat = menuBarHeight
+    ) -> CGSize {
+        guard sourceSize.width > 0,
+              sourceSize.height > 0,
+              availableWidth > 0,
+              maximumHeight > 0 else { return .zero }
+
+        let scale = min(
+            1,
+            availableWidth / sourceSize.width,
+            maximumHeight / sourceSize.height
+        )
+        return CGSize(
+            width: sourceSize.width * scale,
+            height: sourceSize.height * scale
+        )
+    }
+}
+
 private struct OverflowPanelView: View {
     let items: [CapturedItem]
     @ObservedObject var dragState: OverflowDragState
+    let usesSystemOverflow: Bool
     let onClick: (CapturedItem) -> Void
     let onPromote: (CapturedItem) -> Void
     let onExpand: () -> Void
@@ -396,7 +430,6 @@ private struct OverflowPanelView: View {
     @AppStorage(PanelAppearance.defaultsKey)
     private var storedAppearance = PanelAppearance.currentMaterial.rawValue
     private let cellSize: CGFloat = 46
-    private let iconMaxHeight: CGFloat = 28
     private let cellSpacing: CGFloat = 8
     private let panelPadding: CGFloat = 16
     private let panelChromeHeight: CGFloat = 102
@@ -474,9 +507,13 @@ private struct OverflowPanelView: View {
                 Text("FoldBar")
                     .font(.system(size: 17, weight: .semibold))
                 Spacer()
-                Button("展开", action: onExpand)
+                Button(usesSystemOverflow ? "关闭" : "展开", action: onExpand)
                 .buttonStyle(.borderless)
-                .help("展开左侧真实菜单栏图标，并保持展开")
+                .help(
+                    usesSystemOverflow
+                        ? "关闭 FoldBar 面板；请使用菜单栏的 « 展开系统溢出图标"
+                        : "展开左侧真实菜单栏图标，并保持展开"
+                )
                 Button("设置", action: onSettings)
                     .buttonStyle(.borderless)
                     .help("设置面板外观和菜单栏拖动方式")
@@ -615,7 +652,11 @@ private struct OverflowPanelView: View {
         width: CGFloat,
         isDragging: Bool = false
     ) -> some View {
-        Group {
+        let iconSize = OverflowIconLayout.displaySize(
+            sourceSize: item.image.size,
+            availableWidth: width - 6
+        )
+        return Group {
             if isDragging {
                 IconDragPreviewSurface(
                     image: item.image,
@@ -634,10 +675,11 @@ private struct OverflowPanelView: View {
                         shape.fill(iconCellFill)
                     }
                     Image(nsImage: item.image)
+                        .renderingMode(item.image.isTemplate ? .template : .original)
                         .resizable()
                         .interpolation(.high)
-                        .scaledToFit()
-                        .frame(maxWidth: width - 12, maxHeight: iconMaxHeight)
+                        .frame(width: iconSize.width, height: iconSize.height)
+                        .foregroundStyle(.primary)
                 }
                 .frame(width: width, height: cellSize)
             }

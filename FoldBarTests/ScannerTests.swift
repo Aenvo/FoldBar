@@ -16,6 +16,37 @@ struct ScannerTests {
 
     static let separator = window(1, x: -4200, width: 5016)
 
+    @Test("macOS 27 selects Accessibility discovery")
+    func accessibilityBackendSelection() {
+        #expect(!MenuBarItemScanner.usesAccessibilityBackend(for: 26))
+        #expect(MenuBarItemScanner.usesAccessibilityBackend(for: 27))
+        #expect(MenuBarItemScanner.usesAccessibilityBackend(for: 28))
+    }
+
+    @Test("Accessibility identities produce stable reserved IDs")
+    func accessibilitySyntheticIDs() {
+        let identity = MenuBarAccessibilityIdentity(
+            processIdentifier: 42,
+            bundleIdentifier: "com.example.item",
+            ordinal: 0
+        )
+        let same = MenuBarAccessibilityIdentity(
+            processIdentifier: 42,
+            bundleIdentifier: "com.example.item",
+            ordinal: 0
+        )
+        let other = MenuBarAccessibilityIdentity(
+            processIdentifier: 42,
+            bundleIdentifier: "com.example.item",
+            ordinal: 1
+        )
+
+        let id = MenuBarAccessibility.syntheticID(for: identity)
+        #expect(id == MenuBarAccessibility.syntheticID(for: same))
+        #expect(id != MenuBarAccessibility.syntheticID(for: other))
+        #expect((id & 0x8000_0000) != 0)
+    }
+
     @Test("No oversized separator means no managed overflow")
     func noSeparator() {
         let windows = [Self.window(2, x: 700, width: 24), Self.window(3, x: 730, width: 24)]
@@ -51,7 +82,75 @@ struct ScannerTests {
         #expect(found.map(\.id) == [2, 3])
     }
 
-    @Test("Panel presents the status items nearest the menu-bar right first")
+    @Test("macOS 27 native overflow boundary separates hidden and visible apps")
+    func nativeOverflowBoundary() {
+        let overflow = CGRect(x: 994.5, y: 1, width: 17.5, height: 31)
+        let hidden = [
+            Self.window(2, x: 976, width: 36),
+            Self.window(3, x: 980, width: 24),
+            Self.window(4, x: 981, width: 18)
+        ]
+        let visible = [
+            Self.window(5, x: 1027, width: 22),
+            Self.window(6, x: 1064, width: 24)
+        ]
+
+        #expect(MenuBarItemScanner.systemOverflowHiddenItems(
+            among: hidden + visible,
+            overflowFrame: overflow
+        ).map(\.id) == [2, 3, 4])
+        #expect(MenuBarItemScanner.systemOverflowVisibleItems(
+            among: hidden + visible,
+            overflowFrame: overflow
+        ).map(\.id) == [5, 6])
+    }
+
+    @Test("Missing native overflow boundary fails closed without duplicates")
+    func missingNativeOverflowBoundary() {
+        let windows = [Self.window(2, x: 976, width: 36)]
+        #expect(MenuBarItemScanner.systemOverflowHiddenItems(
+            among: windows,
+            overflowFrame: nil
+        ).isEmpty)
+        #expect(MenuBarItemScanner.systemOverflowVisibleItems(
+            among: windows,
+            overflowFrame: nil
+        ).isEmpty)
+    }
+
+    @Test("Native overflow expansion is detected from non-overlapping geometry")
+    func nativeOverflowExpansionGeometry() {
+        let overflow = CGRect(x: 994.5, y: 1, width: 17.5, height: 31)
+        let collapsed = [
+            Self.window(2, x: 976, width: 36),
+            Self.window(3, x: 980, width: 24),
+            Self.window(4, x: 981, width: 18)
+        ]
+        let expanded = [
+            Self.window(2, x: 627, width: 36),
+            Self.window(3, x: 669, width: 24),
+            Self.window(4, x: 712, width: 18)
+        ]
+
+        #expect(!MenuBarItemScanner.systemOverflowItemsAreExpanded(
+            collapsed,
+            overflowFrame: overflow
+        ))
+        #expect(MenuBarItemScanner.systemOverflowItemsAreExpanded(
+            expanded,
+            overflowFrame: overflow
+        ))
+        #expect(!MenuBarItemScanner.systemOverflowItemsAreExpanded(
+            [],
+            overflowFrame: overflow
+        ))
+        #expect(!MenuBarItemScanner.systemOverflowItemsAreExpanded(
+            expanded,
+            overflowFrame: nil
+        ))
+    }
+
+    @Test("Panel preserves the real menu bar's left-to-right order")
     func panelDisplayOrder() {
         let farthestLeft = Self.window(2, x: 700, width: 30)
         let middle = Self.window(3, x: 740, width: 30)
@@ -63,7 +162,7 @@ struct ScannerTests {
             nearestRight
         ])
 
-        #expect(found.map(\.id) == [4, 3, 2])
+        #expect(found.map(\.id) == [2, 3, 4])
     }
 
     @Test("Only new managed window IDs are reconciled after collapse")

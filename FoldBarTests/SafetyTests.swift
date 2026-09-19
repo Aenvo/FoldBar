@@ -15,10 +15,30 @@ struct SafetyTests {
         #expect(StatusBarController.isInStrip(item, displays: [Self.main]))
     }
 
+    @Test("Accessibility menu extras may be inset from the strip origin")
+    func accessibilityItem() {
+        let item = CGRect(x: 1300, y: 5, width: 24, height: 24)
+        #expect(StatusBarController.isInStrip(item, displays: [Self.main]))
+    }
+
     @Test("Negative X is valid on a display left of the primary")
     func leftDisplay() {
         let item = CGRect(x: -500, y: 0, width: 24, height: 24)
         #expect(StatusBarController.isInStrip(item, displays: [Self.main, Self.left]))
+    }
+
+    @Test("Quartz and AppKit menu-bar frame conversion round-trips")
+    func menuBarFrameConversion() {
+        let quartz = CGRect(x: 1204, y: 5, width: 320, height: 24)
+        let appKit = MenuBarCommandDragMonitor.appKitFrame(
+            fromQuartz: quartz,
+            mainDisplayBounds: Self.main
+        )
+        #expect(appKit == CGRect(x: 1204, y: 1078, width: 320, height: 24))
+        #expect(MenuBarCommandDragMonitor.quartzFrame(
+            fromAppKit: appKit,
+            mainDisplayBounds: Self.main
+        ) == quartz)
     }
 
     @Test("Promotion sources must fit inside a visible menu-bar segment")
@@ -130,6 +150,29 @@ struct SafetyTests {
         #expect(!StatusBarController.isImmediatelyLeftOfToggle(
             CGRect(x: 920, y: 0, width: 24, height: 24),
             toggleFrame: trigger
+        ))
+    }
+
+    @Test("macOS 27 managed separator uses its leading edge as the boundary")
+    func managedSeparatorVisibleBoundary() {
+        let separator = CGRect(x: 1178, y: 5, width: 5002, height: 24)
+        let promoted = CGRect(x: 1205, y: 5, width: 24, height: 24)
+        let hidden = CGRect(x: 1129, y: 5, width: 24, height: 24)
+
+        #expect(StatusBarController.isOnVisibleSide(
+            promoted,
+            separatorFrame: separator,
+            usesManagedSceneGeometry: true
+        ))
+        #expect(!StatusBarController.isOnVisibleSide(
+            hidden,
+            separatorFrame: separator,
+            usesManagedSceneGeometry: true
+        ))
+        #expect(!StatusBarController.isOnVisibleSide(
+            promoted,
+            separatorFrame: separator,
+            usesManagedSceneGeometry: false
         ))
     }
 
@@ -311,6 +354,30 @@ struct SafetyTests {
             separatorFrame: separator,
             displays: [Self.main]
         ) == nil)
+    }
+
+    @Test("macOS 27 import targets the hidden side of native overflow")
+    func systemOverflowImportTarget() {
+        let item = CGRect(x: 1094, y: 5, width: 40, height: 24)
+        let overflow = CGRect(x: 994.5, y: 1, width: 17.5, height: 31)
+        let targetX = StatusBarController.systemOverflowImportTargetX(
+            itemFrame: item,
+            overflowFrame: overflow,
+            displays: [Self.main]
+        )
+        #expect(targetX == 970.5)
+
+        let movedFrame = CGRect(
+            x: (targetX ?? 0) - item.width / 2,
+            y: item.minY,
+            width: item.width,
+            height: item.height
+        )
+        #expect(movedFrame.maxX < overflow.minX)
+        #expect(MenuBarItemScanner.isHiddenBySystemOverflow(
+            movedFrame,
+            overflowFrame: overflow
+        ))
     }
 
     @Test("Command-drag source resolution chooses the tightest matching window")
@@ -498,5 +565,96 @@ struct OverflowGridTests {
     @Test("Extremely wide status items are capped at three slots")
     func veryWideItem() {
         #expect(OverflowGridLayout.columnSpan(for: CGRect(x: 0, y: 0, width: 220, height: 34)) == 3)
+    }
+
+    @Test("Panel icons keep their native menu-bar size")
+    func nativeIconSize() {
+        #expect(OverflowIconLayout.displaySize(
+            sourceSize: CGSize(width: 36, height: 24),
+            availableWidth: 40
+        ) == CGSize(width: 36, height: 24))
+    }
+
+    @Test("Oversized fallback artwork is reduced without changing aspect ratio")
+    func oversizedFallbackSize() {
+        #expect(OverflowIconLayout.displaySize(
+            sourceSize: CGSize(width: 512, height: 256),
+            availableWidth: 40
+        ) == CGSize(width: 40, height: 20))
+    }
+
+    @Test("Template conversion preserves detail contrast")
+    func templateDetailContrast() {
+        let colouredSurface = IconCapturer.templateAlpha(forColorDistance: 100)
+        let lightDetail = IconCapturer.templateAlpha(forColorDistance: 130)
+
+        #expect(colouredSurface > 0)
+        #expect(colouredSurface < lightDetail)
+        #expect(lightDetail < 255)
+    }
+
+    @Test("Fallback templates retain app-icon detail without a solid block")
+    func fallbackTemplateDetailContrast() {
+        let surface = IconCapturer.fallbackTemplateAlpha(
+            colorDistance: 0,
+            sourceAlpha: 255,
+            hasOpaqueSurface: true
+        )
+        let detail = IconCapturer.fallbackTemplateAlpha(
+            colorDistance: 120,
+            sourceAlpha: 255,
+            hasOpaqueSurface: true
+        )
+
+        #expect(surface > 0)
+        #expect(surface < detail)
+        #expect(IconCapturer.fallbackTemplateAlpha(
+            colorDistance: 120,
+            sourceAlpha: 0,
+            hasOpaqueSurface: true
+        ) == 0)
+        #expect(IconCapturer.fallbackTemplateAlpha(
+            colorDistance: 0,
+            sourceAlpha: 180,
+            hasOpaqueSurface: false
+        ) == 180)
+    }
+
+    @Test("Template content bounds remove asymmetric transparent margins")
+    func templateContentBounds() {
+        var alphaValues = Array(repeating: UInt8.zero, count: 8 * 6)
+        alphaValues[2 * 8 + 5] = 200
+        alphaValues[3 * 8 + 6] = 220
+
+        #expect(IconCapturer.templateContentBounds(
+            alphaValues: alphaValues,
+            pixelWidth: 8,
+            pixelHeight: 6,
+            padding: 1
+        ) == CGRect(x: 4, y: 1, width: 4, height: 4))
+    }
+
+    @Test("Square template artwork is optically centred without clipping")
+    func opticallyCenteredTemplateContentBounds() {
+        var alphaValues = Array(repeating: UInt8.zero, count: 9 * 7)
+        alphaValues[3 * 9 + 4] = 64
+        alphaValues[3 * 9 + 5] = 255
+
+        #expect(IconCapturer.templateContentBounds(
+            alphaValues: alphaValues,
+            pixelWidth: 9,
+            pixelHeight: 7,
+            padding: 1,
+            opticallyCentered: true
+        ) == CGRect(x: 3, y: 2, width: 5, height: 3))
+    }
+
+    @Test("Blank captures do not invent template content")
+    func blankTemplateContentBounds() {
+        #expect(IconCapturer.templateContentBounds(
+            alphaValues: Array(repeating: 0, count: 8 * 6),
+            pixelWidth: 8,
+            pixelHeight: 6
+        ) == nil)
     }
 }

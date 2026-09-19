@@ -17,7 +17,8 @@ enum ExpandedMenuBarLayout {
     ) -> [CGRect] {
         windows.compactMap { window in
             let frame = window.frame
-            guard abs(frame.minY - displayBounds.minY) <= 1,
+            guard frame.minY >= displayBounds.minY - 2,
+                  frame.maxY <= displayBounds.minY + 42,
                   frame.height <= 40,
                   frame.minX >= displayBounds.minX,
                   frame.maxX <= displayBounds.maxX else { return nil }

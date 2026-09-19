@@ -24,6 +24,7 @@
 		DFEF4C40BEF74F7759CBC981 /* MenuBarModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9033D86C7F9B7C24908A639D /* MenuBarModels.swift */; };
 		E0CC91B025AB5B24A47A1642 /* MenuBarItemScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEFCEA7D523F220F8618C67A /* MenuBarItemScanner.swift */; };
 		EA25C4FA17FB1C140BD62B86 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 4B8635F510178EA2E1F80764 /* Assets.xcassets */; };
+		FC2458E7FEF5B942C42F3DEC /* MenuBarAccessibility.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54D5510968390C0D3C6B4984 /* MenuBarAccessibility.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -42,6 +43,7 @@
 		46840FF2492E027B55B8E301 /* PanelAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelAppearance.swift; sourceTree = "<group>"; };
 		4B8635F510178EA2E1F80764 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		4F7E1047B214A889A6F7A075 /* FoldBarApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoldBarApp.swift; sourceTree = "<group>"; };
+		54D5510968390C0D3C6B4984 /* MenuBarAccessibility.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarAccessibility.swift; sourceTree = "<group>"; };
 		57CE606313CC3B6BE396EB97 /* ActivationWindowScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivationWindowScanner.swift; sourceTree = "<group>"; };
 		57F1F6CC7E3187F59CD31EC4 /* FoldBar.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FoldBar.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		9033D86C7F9B7C24908A639D /* MenuBarModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarModels.swift; sourceTree = "<group>"; };
@@ -78,6 +80,7 @@
 				3C1A7F3D5EAEADE2886A01A9 /* ExpandedMenuBarPanel.swift */,
 				4F7E1047B214A889A6F7A075 /* FoldBarApp.swift */,
 				FF704A9F6E40EC2F93ACBCD5 /* IconCapturer.swift */,
+				54D5510968390C0D3C6B4984 /* MenuBarAccessibility.swift */,
 				EEFD743830B0B3A49D7B8F00 /* MenuBarArrangement.swift */,
 				BC8EB8974C9F69262A89BE0A /* MenuBarCommandDragMonitor.swift */,
 				BB5161F405494A7CEFB1D9BF /* MenuBarItemMetadataResolver.swift */,
@@ -217,6 +220,7 @@
 				7668B818B06CD04F2B0F11EB /* ExpandedMenuBarPanel.swift in Sources */,
 				ACDE29DAF0C376AE59E2EAA1 /* FoldBarApp.swift in Sources */,
 				76652A3466F9F4C3A767115A /* IconCapturer.swift in Sources */,
+				FC2458E7FEF5B942C42F3DEC /* MenuBarAccessibility.swift in Sources */,
 				799DB327F6CE948A86E66218 /* MenuBarArrangement.swift in Sources */,
 				8E1D38C34C8541C415837783 /* MenuBarCommandDragMonitor.swift in Sources */,
 				AF8594F1CFD85CA6DC369D00 /* MenuBarItemMetadataResolver.swift in Sources */,

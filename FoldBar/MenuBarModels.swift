@@ -1,10 +1,40 @@
 import AppKit
 
+struct MenuBarAccessibilityIdentity: Equatable, Hashable, Sendable {
+    let processIdentifier: pid_t
+    let bundleIdentifier: String
+    let ordinal: Int
+}
+
 struct MenuBarItemWindow: Identifiable, Equatable, Sendable {
     let id: CGWindowID
     let frame: CGRect
     let ownerName: String
     let windowName: String
+    let nativeWindowID: CGWindowID?
+    let accessibilityIdentity: MenuBarAccessibilityIdentity?
+    let ownerProcessIdentifier: pid_t?
+    let bundleIdentifier: String
+
+    init(
+        id: CGWindowID,
+        frame: CGRect,
+        ownerName: String,
+        windowName: String,
+        nativeWindowID: CGWindowID? = nil,
+        accessibilityIdentity: MenuBarAccessibilityIdentity? = nil,
+        ownerProcessIdentifier: pid_t? = nil,
+        bundleIdentifier: String = ""
+    ) {
+        self.id = id
+        self.frame = frame
+        self.ownerName = ownerName
+        self.windowName = windowName
+        self.nativeWindowID = nativeWindowID ?? (accessibilityIdentity == nil ? id : nil)
+        self.accessibilityIdentity = accessibilityIdentity
+        self.ownerProcessIdentifier = ownerProcessIdentifier
+        self.bundleIdentifier = bundleIdentifier
+    }
 
     var displayName: String {
         let trimmed = windowName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -32,7 +62,7 @@ struct CapturedItem: Identifiable {
     ) {
         self.window = window
         self.image = image
-        self.ownerProcessIdentifier = ownerProcessIdentifier
+        self.ownerProcessIdentifier = ownerProcessIdentifier ?? window.ownerProcessIdentifier
         let resolved = hoverText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         self.hoverText = resolved.isEmpty ? window.displayName : resolved
     }
