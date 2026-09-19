@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		09FE8205C6F7D6FBA0B5A35F /* EventForwarder.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE9EE71362C03109F2B75205 /* EventForwarder.swift */; };
 		0EF6BAB05385AFEA3ED7DB7F /* PanelAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46840FF2492E027B55B8E301 /* PanelAppearance.swift */; };
+		1E84F85F22D0DFCFEA770EA4 /* MenuBarCaptureShield.swift in Sources */ = {isa = PBXBuildFile; fileRef = C110D173ECE9EDA54E8643ED /* MenuBarCaptureShield.swift */; };
 		559949813EBA8F613549B8CE /* AppearanceSettingsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A222620E7875F71AA42C587 /* AppearanceSettingsPanel.swift */; };
 		76652A3466F9F4C3A767115A /* IconCapturer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF704A9F6E40EC2F93ACBCD5 /* IconCapturer.swift */; };
 		7668B818B06CD04F2B0F11EB /* ExpandedMenuBarPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C1A7F3D5EAEADE2886A01A9 /* ExpandedMenuBarPanel.swift */; };
@@ -54,6 +55,7 @@
 		B3783DBDBF4A87DBF6D5059D /* ScannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScannerTests.swift; sourceTree = "<group>"; };
 		BB5161F405494A7CEFB1D9BF /* MenuBarItemMetadataResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarItemMetadataResolver.swift; sourceTree = "<group>"; };
 		BC8EB8974C9F69262A89BE0A /* MenuBarCommandDragMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarCommandDragMonitor.swift; sourceTree = "<group>"; };
+		C110D173ECE9EDA54E8643ED /* MenuBarCaptureShield.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarCaptureShield.swift; sourceTree = "<group>"; };
 		EEFCEA7D523F220F8618C67A /* MenuBarItemScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarItemScanner.swift; sourceTree = "<group>"; };
 		EEFD743830B0B3A49D7B8F00 /* MenuBarArrangement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarArrangement.swift; sourceTree = "<group>"; };
 		FE9EE71362C03109F2B75205 /* EventForwarder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventForwarder.swift; sourceTree = "<group>"; };
@@ -82,6 +84,7 @@
 				FF704A9F6E40EC2F93ACBCD5 /* IconCapturer.swift */,
 				54D5510968390C0D3C6B4984 /* MenuBarAccessibility.swift */,
 				EEFD743830B0B3A49D7B8F00 /* MenuBarArrangement.swift */,
+				C110D173ECE9EDA54E8643ED /* MenuBarCaptureShield.swift */,
 				BC8EB8974C9F69262A89BE0A /* MenuBarCommandDragMonitor.swift */,
 				BB5161F405494A7CEFB1D9BF /* MenuBarItemMetadataResolver.swift */,
 				EEFCEA7D523F220F8618C67A /* MenuBarItemScanner.swift */,
@@ -222,6 +225,7 @@
 				76652A3466F9F4C3A767115A /* IconCapturer.swift in Sources */,
 				FC2458E7FEF5B942C42F3DEC /* MenuBarAccessibility.swift in Sources */,
 				799DB327F6CE948A86E66218 /* MenuBarArrangement.swift in Sources */,
+				1E84F85F22D0DFCFEA770EA4 /* MenuBarCaptureShield.swift in Sources */,
 				8E1D38C34C8541C415837783 /* MenuBarCommandDragMonitor.swift in Sources */,
 				AF8594F1CFD85CA6DC369D00 /* MenuBarItemMetadataResolver.swift in Sources */,
 				E0CC91B025AB5B24A47A1642 /* MenuBarItemScanner.swift in Sources */,

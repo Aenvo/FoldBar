@@ -109,6 +109,13 @@ final class StatusBarController {
         // the K-like `chevron.left.to.line` glyph in the menu bar.
         separatorItem.button?.image = symbol("chevron.left.to.line")
         separatorItem.button?.alphaValue = 0
+        if MenuBarItemScanner.usesAccessibilityBackend {
+            // macOS 27 uses its own overflow boundary. FoldBar still retains
+            // its second status item for ordering and recovery invariants, but
+            // it must not reserve a visible 27-point hole in the middle of the
+            // system-managed bar.
+            separatorItem.length = 0
+        }
         updateToggleIcon()
         scheduleInitialCollapse()
         schedulePermissionOnboarding()
@@ -139,7 +146,9 @@ final class StatusBarController {
         expandedMenuBarPanel.close()
         // Promotion and proxy activation can temporarily reduce FoldBar's own
         // status-item lengths beside a notch. Quitting restores both immediately.
-        separatorItem.length = NSStatusItem.variableLength
+        if !MenuBarItemScanner.usesAccessibilityBackend {
+            separatorItem.length = NSStatusItem.variableLength
+        }
         toggleItem.length = NSStatusItem.variableLength
         guard isCollapsed else { return }
         isCollapsed = false
@@ -289,6 +298,21 @@ final class StatusBarController {
         }
         guard Set(items.map(\.id)) == expectedIDs else { return [] }
 
+        // macOS 27 must render the native overflow artwork before a public
+        // screen capture can see it. Freeze the current strip above that brief
+        // expand/collapse transaction so background cache refreshes no longer
+        // make the real menu bar jump or flash. If the shield itself cannot be
+        // captured, keep the bar untouched and use safe in-memory fallbacks.
+        guard let captureShield = await MenuBarCaptureShield.present(
+            covering: overflowFrame
+        ) else {
+            return await IconCapturer.capture(
+                items,
+                allowAccessibilityRegionCapture: false
+            )
+        }
+        defer { captureShield.close() }
+
         if !MenuBarItemScanner.systemOverflowItemsAreExpanded(
             items,
             overflowFrame: overflowFrame
@@ -390,7 +414,7 @@ final class StatusBarController {
             // leaving a large blank reservation and capturing the system control
             // as if it were an app icon. Keep FoldBar's boundary compact and let
             // the system decide which real status items fit on screen.
-            separatorItem.length = NSStatusItem.variableLength
+            separatorItem.length = 0
         } else {
             separatorItem.length = Self.collapsedLength
         }
@@ -414,7 +438,10 @@ final class StatusBarController {
         // A transparent separator still reserves its variable-width slot. A
         // proxy click removes that slot up front so revealing the real items
         // produces one layout, without the visible blank gap and second shift.
-        separatorItem.length = removingSeparatorGap ? 0 : NSStatusItem.variableLength
+        separatorItem.length = MenuBarItemScanner.usesAccessibilityBackend
+            || removingSeparatorGap
+            ? 0
+            : NSStatusItem.variableLength
         isCollapsed = false
         updateToggleIcon()
     }

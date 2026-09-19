@@ -288,8 +288,15 @@ final class OverflowPanel {
                 let isCommandClick = event.modifierFlags.contains(.command)
                 MainActor.assumeIsolated {
                     guard let self, let panel = self.panel else { return }
-                    if isCommandClick { return }
-                    if panel.frame.contains(NSEvent.mouseLocation) { return }
+                    // Let the status item's mouse-up reach `toggleClicked()`.
+                    // Closing here on mouse-down would make that action see a
+                    // hidden panel and immediately reopen it.
+                    guard OverflowPanelDismissal.shouldClose(
+                        for: NSEvent.mouseLocation,
+                        panelFrame: panel.frame,
+                        anchorFrame: anchorFrame,
+                        isCommandClick: isCommandClick
+                    ) else { return }
                     self.close()
                 }
             }
@@ -349,6 +356,19 @@ final class OverflowPanel {
     func endExternalDrag() {
         dragState?.endExternalDragging()
         externalPreview.close()
+    }
+}
+
+enum OverflowPanelDismissal {
+    static func shouldClose(
+        for location: CGPoint,
+        panelFrame: CGRect,
+        anchorFrame: CGRect,
+        isCommandClick: Bool
+    ) -> Bool {
+        !isCommandClick
+            && !panelFrame.contains(location)
+            && !anchorFrame.contains(location)
     }
 }
 

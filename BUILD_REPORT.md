@@ -6,18 +6,21 @@ Verified on macOS 27.0 (26A428) with Xcode 27.0 (27A266a), Swift 6.4, and
 the macOS 27.0 SDK.
 
 - Branch: `fix/macos-27-compatibility`.
-- Debug app-hosted test run: passed; all 63 Swift Testing cases passed.
+- Debug app-hosted test run: passed; all 64 Swift Testing cases passed.
 - Release build: passed with no source compiler warnings.
 - Release binary: universal `x86_64` + `arm64`.
 - Code-signature structural verification (`codesign --verify --deep --strict`): passed.
 - Installed executable SHA-256:
-  `e55f8778ee92ccd64df412867398178e2a4f7599ba15c214065488a6b3873b9f`.
+  `2df8e63b508169d6780afa41c7dd858d353a9c4799b057bdddca723311c71dc1`.
 - Installed-runtime check: the exact `/Applications/FoldBar.app` candidate
-  launched successfully as PID 35259. An installed-app panel capture measured
+  launched successfully as PID 36670. An installed-app panel capture measured
   the CodexSquad glyph at `x=109...138` inside a cell centred at `x=123.5`;
   both its bounds and alpha-weighted centre resolve to `x=123.5`, and all three
   source dots are present without right-edge clipping. Clicking that proxy
   opened CodexSquad's real two-item status menu and produced no FoldBar alert.
+  A second trigger press closed the panel, leaving zero FoldBar-owned on-screen
+  panels. The macOS 27 separator's live Accessibility frame is 2 points wide
+  instead of the former 27-point reservation.
 
 macOS 27 no longer exposes each third-party menu extra as an individual
 WindowServer or ScreenCaptureKit window. The candidate therefore selects a
@@ -33,7 +36,12 @@ the menu-bar background, and restores native overflow. The resulting in-memory
 templates preserve the actual menu-bar glyph, aspect ratio, visual size, and
 centering instead of substituting the owning application's icon. A
 background-only capture is rejected and retried rather than cached as a blank
-cell.
+cell. The expand/capture/restore transaction is now covered by an exact,
+non-interactive snapshot of that display's current menu-bar strip. The shield
+is excluded from screen sharing so ScreenCaptureKit still sees the real artwork
+underneath it, and its window animation is disabled. Runtime sampling observed
+one stable full-width, fully opaque layer-35 shield frame followed by immediate
+removal, with no resize or fade sequence.
 
 The managed items remain in the same left-to-right order as the real menu bar.
 Near-square captured glyphs now place their alpha-weighted visual centre on the
@@ -51,10 +59,14 @@ that result only after the existing process, bundle, ordinal, label, and live
 frame checks have already resolved the exact target; unsupported or invalid
 Accessibility actions still fail closed.
 On macOS 27, the system-owned `«` control is the source of truth for real
-overflow visibility. FoldBar no longer places a background or click-blocking
-window over those coordinates; doing so reserved the same space twice and was
-the cause of the reported empty menu-bar gap. The panel action is labelled
-Close on macOS 27, while macOS 14–26 retain the legacy Expand behavior.
+overflow visibility. FoldBar no longer leaves a persistent layout mask or a
+click-blocking window over those coordinates; doing so reserved the same space
+twice and was the cause of the reported empty menu-bar gap. Its retained legacy
+separator is zero-length on this backend instead of reserving a transparent
+27-point slot. The panel action is labelled Close on macOS 27, while macOS
+14–26 retain the legacy Expand behavior. Clicking FoldBar's trigger while the
+panel is open is excluded from the outside-click monitor, allowing the trigger's
+own mouse-up action to close the panel instead of reopening it.
 
 Accessibility scanning runs on a utility task and publishes a short-lived
 MainActor cache. Synthetic item identifiers are deterministic and occupy a
@@ -253,6 +265,8 @@ The packaged app is signed with the local Apple Development certificate so its p
 - Menu-bar overlay clamping and proxy layout for the expanded presentation.
 - Transparent expanded-proxy placement before existing visible status items,
   including fail-closed handling when those items leave insufficient room.
+- Overflow-panel dismissal geometry that leaves trigger clicks to the trigger's
+  own open/close action.
 
 The earlier 0.1.0 build was interactively tested and exposed the permission repetition, visible capture flash, and aspect-ratio defects addressed in 0.2.0. The signed `feat/panel-command-drag-import` candidate is installed and launches from `/Applications/FoldBar.app`. After the window-ID fix, the installed trigger was exercised through System Events: the panel opened, remained alive across multiple candidate-refresh intervals, closed normally, and produced no new crash report. On 2026-09-11, the user then reported that the installed real-menu-bar Command-drag import acceptance path succeeded. The outside-panel cancellation path was not reported separately and remains pending.
 

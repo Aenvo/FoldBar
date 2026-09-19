@@ -275,6 +275,25 @@ struct SafetyTests {
         #expect(StatusBarController.shouldFinishAutoCollapse(eventUserData: 0))
     }
 
+    @Test("Clicking the FoldBar trigger is left for its toggle action")
+    func overflowPanelTriggerClickDoesNotDismissEarly() {
+        let panel = CGRect(x: 100, y: 100, width: 300, height: 240)
+        let trigger = CGRect(x: 360, y: 350, width: 32, height: 34)
+
+        #expect(!OverflowPanelDismissal.shouldClose(
+            for: CGPoint(x: trigger.midX, y: trigger.midY),
+            panelFrame: panel,
+            anchorFrame: trigger,
+            isCommandClick: false
+        ))
+        #expect(OverflowPanelDismissal.shouldClose(
+            for: CGPoint(x: 20, y: 20),
+            panelFrame: panel,
+            anchorFrame: trigger,
+            isCommandClick: false
+        ))
+    }
+
     @Test("Expanded proxies fail closed when visible items leave no room")
     func expandedMenuBarRejectsOccupiedArea() {
         let visibleArea = CGRect(x: 948, y: 1073, width: 762, height: 34)
