@@ -161,7 +161,19 @@ enum MenuBarAccessibility {
             expectedLabel: expectedLabel,
             expectedFrame: expectedFrame
         ) else { return false }
-        return AXUIElementPerformAction(element, kAXPressAction as CFString) == .success
+        return pressResultIndicatesDispatch(
+            AXUIElementPerformAction(element, kAXPressAction as CFString)
+        )
+    }
+
+    /// Some menu-extra implementations dispatch AXPress but fail to acknowledge
+    /// the synchronous accessibility message before its timeout. Tauri status
+    /// items exhibit this behavior: the real menu opens while AppKit reports
+    /// `cannotComplete`. The element has already been re-resolved by process,
+    /// bundle, ordinal, label, and live frame, so this result is an indeterminate
+    /// acknowledgement rather than evidence that a different item was targeted.
+    nonisolated static func pressResultIndicatesDispatch(_ result: AXError) -> Bool {
+        result == .success || result == .cannotComplete
     }
 
     @MainActor

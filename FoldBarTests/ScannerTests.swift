@@ -1,3 +1,4 @@
+import ApplicationServices
 import CoreGraphics
 import Testing
 
@@ -45,6 +46,14 @@ struct ScannerTests {
         #expect(id == MenuBarAccessibility.syntheticID(for: same))
         #expect(id != MenuBarAccessibility.syntheticID(for: other))
         #expect((id & 0x8000_0000) != 0)
+    }
+
+    @Test("A timed-out AXPress can still be a validated dispatch")
+    func accessibilityPressDispatchResult() {
+        #expect(MenuBarAccessibility.pressResultIndicatesDispatch(.success))
+        #expect(MenuBarAccessibility.pressResultIndicatesDispatch(.cannotComplete))
+        #expect(!MenuBarAccessibility.pressResultIndicatesDispatch(.actionUnsupported))
+        #expect(!MenuBarAccessibility.pressResultIndicatesDispatch(.invalidUIElement))
     }
 
     @Test("No oversized separator means no managed overflow")

@@ -6,17 +6,18 @@ Verified on macOS 27.0 (26A428) with Xcode 27.0 (27A266a), Swift 6.4, and
 the macOS 27.0 SDK.
 
 - Branch: `fix/macos-27-compatibility`.
-- Debug app-hosted test run: passed; all 62 Swift Testing cases passed.
+- Debug app-hosted test run: passed; all 63 Swift Testing cases passed.
 - Release build: passed with no source compiler warnings.
 - Release binary: universal `x86_64` + `arm64`.
 - Code-signature structural verification (`codesign --verify --deep --strict`): passed.
 - Installed executable SHA-256:
-  `45c3215d4ff931646fc15133466f6df591f4156797ec9648a86479630ba6df5c`.
+  `e55f8778ee92ccd64df412867398178e2a4f7599ba15c214065488a6b3873b9f`.
 - Installed-runtime check: the exact `/Applications/FoldBar.app` candidate
-  launched successfully as PID 34048. An installed-app panel capture measured
+  launched successfully as PID 35259. An installed-app panel capture measured
   the CodexSquad glyph at `x=109...138` inside a cell centred at `x=123.5`;
   both its bounds and alpha-weighted centre resolve to `x=123.5`, and all three
-  source dots are present without right-edge clipping.
+  source dots are present without right-edge clipping. Clicking that proxy
+  opened CodexSquad's real two-item status menu and produced no FoldBar alert.
 
 macOS 27 no longer exposes each third-party menu extra as an individual
 WindowServer or ScreenCaptureKit window. The candidate therefore selects a
@@ -43,6 +44,12 @@ Live capture timing showed that macOS 27 publishes the final Accessibility
 frame within about 20 ms but does not finish sliding its pixels into that frame
 until roughly 650 ms. FoldBar now waits for that compositor transition and
 rejects any transitional capture whose foreground still touches an image edge.
+Live activation also showed that Tauri dispatches `AXPress` and opens the real
+status menu while returning `kAXErrorCannotComplete` because it does not
+acknowledge the synchronous accessibility message in time. FoldBar now accepts
+that result only after the existing process, bundle, ordinal, label, and live
+frame checks have already resolved the exact target; unsupported or invalid
+Accessibility actions still fail closed.
 On macOS 27, the system-owned `«` control is the source of truth for real
 overflow visibility. FoldBar no longer places a background or click-blocking
 window over those coordinates; doing so reserved the same space twice and was
@@ -69,7 +76,7 @@ leaves no FoldBar-owned on-screen window. The original pre-fix install remains
 recoverable at
 `~/.Trash/FoldBar.app.backup-20260919-154523`; the immediately preceding
 installed candidate is recoverable at
-`~/.Trash/FoldBar.app.backup-20260919-1919-animation-fix`. Intermediate
+`~/.Trash/FoldBar.app.backup-20260919-1958-axpress-fix`. Intermediate
 candidates were also moved to the Trash rather than deleted.
 
 Direct-drag acceptance used a temporary test status item so no real application
@@ -237,6 +244,8 @@ The packaged app is signed with the local Apple Development certificate so its p
 - Native-size template rendering, internal detail contrast, transparent-margin
   trimming, non-clipping alpha-weighted optical centering for square glyphs,
   and rejection of compositor-transition frames clipped at a capture edge.
+- AXPress result classification that preserves strict target resolution while
+  accepting Tauri's dispatched-but-unacknowledged `cannotComplete` response.
 - Visible menu-bar-segment validation, including overlapping X ranges on different displays.
 - Adaptive one-, two-, and three-column spans for wide status items.
 - Detection of newly registered managed-window IDs and free-space calculation
