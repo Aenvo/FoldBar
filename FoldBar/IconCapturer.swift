@@ -195,7 +195,17 @@ enum IconCapturer {
             }
         }
 
-        guard context.makeImage() != nil else { return nil }
+        guard context.makeImage() != nil,
+              let unpaddedContentBounds = templateContentBounds(
+                  alphaValues: alphaValues,
+                  pixelWidth: width,
+                  pixelHeight: height,
+                  padding: 0
+              ), templateContentIsSafelyInsideCapture(
+                  unpaddedContentBounds,
+                  pixelWidth: width,
+                  pixelHeight: height
+              ) else { return nil }
         guard let contentBounds = templateContentBounds(
             alphaValues: alphaValues,
             pixelWidth: width,
@@ -311,6 +321,24 @@ enum IconCapturer {
             width: paddedMaximumX - paddedMinimumX + 1,
             height: paddedMaximumY - paddedMinimumY + 1
         )
+    }
+
+    /// A native-overflow animation can move real artwork through an AX frame
+    /// after Accessibility has already published its final coordinates. Treat
+    /// foreground touching the capture edge as a transitional, clipped frame.
+    nonisolated static func templateContentIsSafelyInsideCapture(
+        _ contentBounds: CGRect,
+        pixelWidth: Int,
+        pixelHeight: Int,
+        minimumMargin: Int = 1
+    ) -> Bool {
+        guard pixelWidth > 0,
+              pixelHeight > 0,
+              minimumMargin >= 0 else { return false }
+        return contentBounds.minX >= CGFloat(minimumMargin)
+            && contentBounds.minY >= CGFloat(minimumMargin)
+            && contentBounds.maxX <= CGFloat(pixelWidth - minimumMargin)
+            && contentBounds.maxY <= CGFloat(pixelHeight - minimumMargin)
     }
 
     private static func templateImage(

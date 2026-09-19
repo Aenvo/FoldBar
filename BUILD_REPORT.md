@@ -6,16 +6,17 @@ Verified on macOS 27.0 (26A428) with Xcode 27.0 (27A266a), Swift 6.4, and
 the macOS 27.0 SDK.
 
 - Branch: `fix/macos-27-compatibility`.
-- Debug app-hosted test run: passed; all 61 Swift Testing cases passed.
+- Debug app-hosted test run: passed; all 62 Swift Testing cases passed.
 - Release build: passed with no source compiler warnings.
 - Release binary: universal `x86_64` + `arm64`.
 - Code-signature structural verification (`codesign --verify --deep --strict`): passed.
 - Installed executable SHA-256:
-  `1adb80ec411604b6ec8206f49bade3995a36d07029cc0c28498764882f6817db`.
+  `45c3215d4ff931646fc15133466f6df591f4156797ec9648a86479630ba6df5c`.
 - Installed-runtime check: the exact `/Applications/FoldBar.app` candidate
-  launched successfully as PID 32648. The 61st automated case verifies the new
-  non-clipping optical-centering geometry; fresh user visual acceptance of that
-  final delta remains pending.
+  launched successfully as PID 34048. An installed-app panel capture measured
+  the CodexSquad glyph at `x=109...138` inside a cell centred at `x=123.5`;
+  both its bounds and alpha-weighted centre resolve to `x=123.5`, and all three
+  source dots are present without right-edge clipping.
 
 macOS 27 no longer exposes each third-party menu extra as an individual
 WindowServer or ScreenCaptureKit window. The candidate therefore selects a
@@ -38,6 +39,10 @@ Near-square captured glyphs now place their alpha-weighted visual centre on the
 nearest pixel-aligned canvas centre before SwiftUI lays them out. The canvas is
 expanded with transparent pixels when necessary, so asymmetric artwork is not
 clipped or shifted to the right; wide text meters retain their geometric crop.
+Live capture timing showed that macOS 27 publishes the final Accessibility
+frame within about 20 ms but does not finish sliding its pixels into that frame
+until roughly 650 ms. FoldBar now waits for that compositor transition and
+rejects any transitional capture whose foreground still touches an image edge.
 On macOS 27, the system-owned `«` control is the source of truth for real
 overflow visibility. FoldBar no longer places a background or click-blocking
 window over those coordinates; doing so reserved the same space twice and was
@@ -64,7 +69,7 @@ leaves no FoldBar-owned on-screen window. The original pre-fix install remains
 recoverable at
 `~/.Trash/FoldBar.app.backup-20260919-154523`; the immediately preceding
 installed candidate is recoverable at
-`~/.Trash/FoldBar.app.backup-20260919-1852-optical-center`. Intermediate
+`~/.Trash/FoldBar.app.backup-20260919-1919-animation-fix`. Intermediate
 candidates were also moved to the Trash rather than deleted.
 
 Direct-drag acceptance used a temporary test status item so no real application
@@ -230,7 +235,8 @@ The packaged app is signed with the local Apple Development certificate so its p
 - macOS 27 native-overflow hidden/visible partition, fail-closed missing-boundary
   behavior, and language-independent expanded-state geometry.
 - Native-size template rendering, internal detail contrast, transparent-margin
-  trimming, and non-clipping alpha-weighted optical centering for square glyphs.
+  trimming, non-clipping alpha-weighted optical centering for square glyphs,
+  and rejection of compositor-transition frames clipped at a capture edge.
 - Visible menu-bar-segment validation, including overlapping X ranges on different displays.
 - Adaptive one-, two-, and three-column spans for wide status items.
 - Detection of newly registered managed-window IDs and free-space calculation

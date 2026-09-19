@@ -7,6 +7,7 @@ final class StatusBarController {
     private static let collapsedLength: CGFloat = 10_000
     private static let initialStablePolls = 3
     private static let initialMaxPolls = 45
+    private static let nativeOverflowArtworkSettleMilliseconds = 650
     private static var collapsedItemPollMilliseconds: Int {
         MenuBarItemScanner.usesAccessibilityBackend ? 5_000 : 600
     }
@@ -308,10 +309,13 @@ final class StatusBarController {
             }
         }
 
-        // AX geometry moves before MenuBarAgent finishes drawing the exposed
-        // status artwork. Wait for the compositor, then let IconCapturer reject
-        // and retry any background-only frame instead of caching a blank cell.
-        guard (try? await Task.sleep(for: .milliseconds(160))) != nil,
+        // AX geometry reaches its final slot almost immediately, but macOS 27's
+        // compositor can take roughly 650 ms to slide the real artwork into that
+        // slot. Capturing earlier produces a valid-looking partial glyph, so wait
+        // for the measured transition to finish before accepting any pixels.
+        guard (try? await Task.sleep(
+            for: .milliseconds(Self.nativeOverflowArtworkSettleMilliseconds)
+        )) != nil,
               !Task.isCancelled else {
             await restoreCollapsedNativeSystemOverflow()
             return []

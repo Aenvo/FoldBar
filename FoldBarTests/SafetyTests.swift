@@ -649,6 +649,20 @@ struct OverflowGridTests {
         ) == CGRect(x: 3, y: 2, width: 5, height: 3))
     }
 
+    @Test("Template capture rejects foreground clipped by a capture edge")
+    func templateCaptureEdgeSafety() {
+        #expect(IconCapturer.templateContentIsSafelyInsideCapture(
+            CGRect(x: 2, y: 1, width: 4, height: 4),
+            pixelWidth: 8,
+            pixelHeight: 6
+        ))
+        #expect(!IconCapturer.templateContentIsSafelyInsideCapture(
+            CGRect(x: 4, y: 1, width: 4, height: 4),
+            pixelWidth: 8,
+            pixelHeight: 6
+        ))
+    }
+
     @Test("Blank captures do not invent template content")
     func blankTemplateContentBounds() {
         #expect(IconCapturer.templateContentBounds(
