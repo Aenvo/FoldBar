@@ -92,10 +92,19 @@ final class StatusBarController {
         defaults.set(positions.toggle, forKey: toggleKey)
         defaults.set(positions.separator, forKey: separatorKey)
 
-        // Create the always-visible trigger first, then the separator to its left.
+        let registersLegacySeparator = Self.registersLegacySeparator(
+            for: ProcessInfo.processInfo.operatingSystemVersion.majorVersion
+        )
+
+        // Create the always-visible trigger first, then the legacy separator to
+        // its left. macOS 27 supplies its own overflow boundary, so unregister
+        // the second scene before the first run-loop presentation instead of
+        // leaving Control Center's unavoidable 16-point outer slot behind.
         toggleItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         toggleItem.autosaveName = Self.toggleAutosaveName
-        separatorItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        separatorItem = NSStatusBar.system.statusItem(
+            withLength: registersLegacySeparator ? NSStatusItem.variableLength : 0
+        )
         separatorItem.autosaveName = Self.separatorAutosaveName
 
         if let button = toggleItem.button {
@@ -104,17 +113,14 @@ final class StatusBarController {
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
             button.toolTip = "FoldBar"
         }
-        // The separator is a layout boundary, not a user-facing control. Keep
-        // its image as the variable-length sizing reference, but do not render
-        // the K-like `chevron.left.to.line` glyph in the menu bar.
-        separatorItem.button?.image = symbol("chevron.left.to.line")
-        separatorItem.button?.alphaValue = 0
-        if MenuBarItemScanner.usesAccessibilityBackend {
-            // macOS 27 uses its own overflow boundary. FoldBar still retains
-            // its second status item for ordering and recovery invariants, but
-            // it must not reserve a visible 27-point hole in the middle of the
-            // system-managed bar.
-            separatorItem.length = 0
+        if registersLegacySeparator {
+            // The separator is a layout boundary, not a user-facing control.
+            // Keep its image as the variable-length sizing reference, but do
+            // not render the K-like glyph in the menu bar.
+            separatorItem.button?.image = symbol("chevron.left.to.line")
+            separatorItem.button?.alphaValue = 0
+        } else {
+            NSStatusBar.system.removeStatusItem(separatorItem)
         }
         updateToggleIcon()
         scheduleInitialCollapse()
@@ -126,6 +132,10 @@ final class StatusBarController {
             && MenuBarArrangement.isValid(separator)
             && toggle > 0
             && separator > toggle
+    }
+
+    nonisolated static func registersLegacySeparator(for majorVersion: Int) -> Bool {
+        !MenuBarItemScanner.usesAccessibilityBackend(for: majorVersion)
     }
 
     func expandForQuit() {
@@ -865,8 +875,11 @@ final class StatusBarController {
             )
             return false
         }
+        let liveBoundaryFrame = MenuBarItemScanner.usesAccessibilityBackend
+            ? MenuBarItemScanner.systemOverflowFrame()
+            : separatorItem.button?.window?.frame
         guard let frame,
-              let liveSeparatorFrame = separatorItem.button?.window?.frame,
+              let liveBoundaryFrame,
               let liveToggleFrame = toggleItem.button?.window?.frame,
               Self.isInVisibleMenuBarSegment(frame, segments: visibleSegments),
               let targetX = Self.promotionTargetX(
@@ -883,7 +896,7 @@ final class StatusBarController {
         }
 
         Self.promotionLogger.notice(
-            "promotion[\(diagnosticID, privacy: .public)] dispatch item=\(Self.frameDescription(frame), privacy: .public) separator=\(Self.frameDescription(liveSeparatorFrame), privacy: .public) toggle=\(Self.frameDescription(liveToggleFrame), privacy: .public) targetX=\(targetX, privacy: .public)"
+            "promotion[\(diagnosticID, privacy: .public)] dispatch item=\(Self.frameDescription(frame), privacy: .public) boundary=\(Self.frameDescription(liveBoundaryFrame), privacy: .public) toggle=\(Self.frameDescription(liveToggleFrame), privacy: .public) targetX=\(targetX, privacy: .public)"
         )
         if let identity = item.accessibilityIdentity,
            !MenuBarAccessibility.matchesCurrentItem(
@@ -1508,8 +1521,7 @@ final class StatusBarController {
                 stablePolls = 0
                 continue
             }
-            guard let separatorFrame = separatorItem.button?.window?.frame,
-                  let toggleFrame = toggleItem.button?.window?.frame else {
+            guard let toggleFrame = toggleItem.button?.window?.frame else {
                 Self.promotionLogger.notice(
                     "promotion[\(diagnosticID, privacy: .public)] verify poll=\(poll, privacy: .public) own-window-missing item=\(Self.frameDescription(frame), privacy: .public)"
                 )
@@ -1518,11 +1530,26 @@ final class StatusBarController {
             }
 
             let inStrip = Self.isInMenuBarStrip(frame)
-            let visible = Self.isOnVisibleSide(frame, separatorFrame: separatorFrame)
+            let boundaryFrame: CGRect?
+            let visible: Bool
+            if MenuBarItemScanner.usesAccessibilityBackend {
+                boundaryFrame = MenuBarItemScanner.systemOverflowFrame()
+                visible = boundaryFrame.map {
+                    MenuBarItemScanner.isVisibleBySystemOverflow(
+                        frame,
+                        overflowFrame: $0
+                    )
+                } ?? false
+            } else {
+                boundaryFrame = separatorItem.button?.window?.frame
+                visible = boundaryFrame.map {
+                    Self.isOnVisibleSide(frame, separatorFrame: $0)
+                } ?? false
+            }
             let adjacent = Self.isImmediatelyLeftOfToggle(frame, toggleFrame: toggleFrame)
             let gap = toggleFrame.minX - frame.maxX
             Self.promotionLogger.notice(
-                "promotion[\(diagnosticID, privacy: .public)] verify poll=\(poll, privacy: .public) item=\(Self.frameDescription(frame), privacy: .public) separator=\(Self.frameDescription(separatorFrame), privacy: .public) toggle=\(Self.frameDescription(toggleFrame), privacy: .public) inStrip=\(inStrip, privacy: .public) visible=\(visible, privacy: .public) adjacent=\(adjacent, privacy: .public) gap=\(gap, privacy: .public) stableBefore=\(stablePolls, privacy: .public)"
+                "promotion[\(diagnosticID, privacy: .public)] verify poll=\(poll, privacy: .public) item=\(Self.frameDescription(frame), privacy: .public) boundary=\(Self.frameDescription(boundaryFrame), privacy: .public) toggle=\(Self.frameDescription(toggleFrame), privacy: .public) inStrip=\(inStrip, privacy: .public) visible=\(visible, privacy: .public) adjacent=\(adjacent, privacy: .public) gap=\(gap, privacy: .public) stableBefore=\(stablePolls, privacy: .public)"
             )
 
             if inStrip, visible, adjacent {

@@ -11,16 +11,18 @@ the macOS 27.0 SDK.
 - Release binary: universal `x86_64` + `arm64`.
 - Code-signature structural verification (`codesign --verify --deep --strict`): passed.
 - Installed executable SHA-256:
-  `2df8e63b508169d6780afa41c7dd858d353a9c4799b057bdddca723311c71dc1`.
+  `f642c60a3893271e761a3b91bb00037cb66b50fa15e5bf9a9a9e4929f25ff24a`.
 - Installed-runtime check: the exact `/Applications/FoldBar.app` candidate
-  launched successfully as PID 36670. An installed-app panel capture measured
+  launched successfully as PID 38278. An installed-app panel capture measured
   the CodexSquad glyph at `x=109...138` inside a cell centred at `x=123.5`;
   both its bounds and alpha-weighted centre resolve to `x=123.5`, and all three
   source dots are present without right-edge clipping. Clicking that proxy
   opened CodexSquad's real two-item status menu and produced no FoldBar alert.
   A second trigger press closed the panel, leaving zero FoldBar-owned on-screen
-  panels. The macOS 27 separator's live Accessibility frame is 2 points wide
-  instead of the former 27-point reservation.
+  panels. AppKit and Accessibility both report exactly one registered FoldBar
+  status item: the trigger. Opening the panel, activating the CodexSquad proxy,
+  and dismissing its real menu left that count at one and did not recreate the
+  reported empty slot.
 
 macOS 27 no longer exposes each third-party menu extra as an individual
 WindowServer or ScreenCaptureKit window. The candidate therefore selects a
@@ -61,12 +63,14 @@ Accessibility actions still fail closed.
 On macOS 27, the system-owned `«` control is the source of truth for real
 overflow visibility. FoldBar no longer leaves a persistent layout mask or a
 click-blocking window over those coordinates; doing so reserved the same space
-twice and was the cause of the reported empty menu-bar gap. Its retained legacy
-separator is zero-length on this backend instead of reserving a transparent
-27-point slot. The panel action is labelled Close on macOS 27, while macOS
-14–26 retain the legacy Expand behavior. Clicking FoldBar's trigger while the
-panel is open is excluded from the outside-click monitor, allowing the trigger's
-own mouse-up action to close the panel instead of reopening it.
+twice and was the cause of the original large menu-bar gap. A second, narrower
+gap remained because macOS 27 reserves a 16-point outer host slot even when the
+legacy separator's content length is zero. The candidate now unregisters that
+legacy separator before first presentation and uses the system `«` boundary for
+promotion verification. macOS 14–26 retain the two-item separator path. The
+panel action is labelled Close on macOS 27. Clicking FoldBar's trigger while
+the panel is open is excluded from the outside-click monitor, allowing the
+trigger's own mouse-up action to close the panel instead of reopening it.
 
 Accessibility scanning runs on a utility task and publishes a short-lived
 MainActor cache. Synthetic item identifiers are deterministic and occupy a

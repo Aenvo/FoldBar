@@ -22,6 +22,9 @@ struct ScannerTests {
         #expect(!MenuBarItemScanner.usesAccessibilityBackend(for: 26))
         #expect(MenuBarItemScanner.usesAccessibilityBackend(for: 27))
         #expect(MenuBarItemScanner.usesAccessibilityBackend(for: 28))
+        #expect(StatusBarController.registersLegacySeparator(for: 26))
+        #expect(!StatusBarController.registersLegacySeparator(for: 27))
+        #expect(!StatusBarController.registersLegacySeparator(for: 28))
     }
 
     @Test("Accessibility identities produce stable reserved IDs")

@@ -6,8 +6,8 @@ This file applies to the entire FoldBar repository. FoldBar is a lightweight mac
 
 Preserve the product model:
 
-- FoldBar owns two `NSStatusItem`s: an always-visible trigger and a separator.
-- Collapsing enlarges the separator so status items on its managed side are parked off-screen by macOS.
+- On macOS 14–26, FoldBar owns two registered `NSStatusItem`s: an always-visible trigger and a separator. Collapsing enlarges the separator so status items on its managed side are parked off-screen by macOS.
+- On macOS 27 and newer, the system `«` owns the overflow boundary. FoldBar keeps only its trigger registered; the legacy separator object is removed before first presentation because even a zero-length `NSSceneStatusItem` reserves a visible outer slot.
 - The overflow panel shows in-memory screenshots of the real status-item windows. It does not take ownership of another app's `NSStatusItem`.
 - The overflow panel presents managed items from menu-bar right to left: the item nearest the visible side comes first and the farthest-left/system-overflow item comes last.
 - When the managed list is empty, omit empty-state copy and expand the dashed drop zone to fill the content area below the header.
