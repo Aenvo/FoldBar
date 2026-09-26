@@ -37,8 +37,10 @@ then sends the marked primary mouse sequence instead of relying on `AXPress`.
 This is application-independent and remains fail-closed before input dispatch.
 
 The macOS 27 panel header no longer renders the redundant Close action or its
-system-overflow explanation. Installed-app accessibility inspection reports one
-header button, Settings, and the visible panel text contains only the FoldBar
+system-overflow explanation. The remaining Settings action now uses the native
+`gearshape` symbol with an icon-only label. An installed-app capture confirms
+that the header renders only the gear glyph, while accessibility inspection
+retains its settings help text. The visible panel text contains only the FoldBar
 title and the keep-visible drop-zone copy. The legacy macOS 14–26 Expand action
 remains available because it still exposes the real separator-managed section.
 
@@ -52,10 +54,10 @@ and the macOS 27.0 SDK:
 - Code-signature structural verification (`codesign --verify --deep --strict`):
   passed; identifier `local.foldbar.app`, team `42MUMXKY79`.
 - Installed executable SHA-256:
-  `34c5f58eeccf3a12303f814e0bb8f26bea7c9c18396cc91a0b5b59d719f51b6f`.
-- The exact candidate launched from `/Applications/FoldBar.app` as PID 6757.
-  It loaded the six bundle identifiers already persisted by the user's prior
-  imports and removed all six real glyphs from the rendered menu bar while
+  `1aa3b9fd4f5c7e3e522eb8196d300948c9545a68762f4189d8c1a68ac8f54e15`.
+- The exact candidate launched from `/Applications/FoldBar.app` as PID 7704.
+  It loaded the managed bundle identifiers already persisted by the user's
+  prior imports and removed their real glyphs from the rendered menu bar while
   leaving FoldBar, Wi-Fi, battery, temperature, Control Center, and the clock
   visible.
 

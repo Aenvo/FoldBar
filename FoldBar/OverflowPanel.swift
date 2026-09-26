@@ -540,7 +540,8 @@ private struct OverflowPanelView: View {
                         .buttonStyle(.borderless)
                         .help("展开左侧真实菜单栏图标，并保持展开")
                 }
-                Button("设置", action: onSettings)
+                Button("设置", systemImage: "gearshape", action: onSettings)
+                    .labelStyle(.iconOnly)
                     .buttonStyle(.borderless)
                     .help("设置面板外观和菜单栏拖动方式")
             }
