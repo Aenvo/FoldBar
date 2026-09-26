@@ -44,8 +44,7 @@ struct ScannerTests {
         )
 
         #expect(allowed == ["com.example.visible", "local.foldbar.app"])
-        #expect(MenuBarVisibilityRestriction.allSystemItems.contains("clock"))
-        #expect(MenuBarVisibilityRestriction.allSystemItems.contains("wifi"))
+        #expect(MenuBarVisibilityRestriction.allSystemItemRawValues == Array(0...15))
     }
 
     @Test("Accessibility identities produce stable reserved IDs")

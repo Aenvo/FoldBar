@@ -5,7 +5,7 @@
 ## 当前功能
 
 - macOS 14–26 继续沿用 FoldBar 分隔符：收起时把分隔符左侧的真实菜单栏项停放到屏幕外，退出前恢复。
-- macOS 27 及以上改用 MenuBarAgent 的私有可见性限制接口，维护 FoldBar 自己的收纳列表。系统 `«` 保持独立，FoldBar 不再点击它、不把它当作收纳目标，也不会为它预留空位。
+- macOS 27 及以上动态使用 MenuBarClientCore 的私有 `MBAssessmentModeAssertion` 可见性配置，维护 FoldBar 自己的收纳列表。系统 `«` 保持独立，FoldBar 不再点击它、不把它当作收纳目标，也不会为它预留空位。
 - macOS 27 的私有接口按应用的 bundle identifier 生效：同一应用如果提供多个菜单栏项，会一起收纳或移出，无法只处理其中一个。
 - macOS 27 不再注册旧版分隔项，避免零长度 `NSSceneStatusItem` 仍留下系统宿主空槽。
 - 没有收纳图标时不显示额外的空状态文案，而是让虚线拖放区填满标题下方空间，作为更大的菜单栏图标收纳目标。
@@ -26,7 +26,7 @@
 macOS 没有公开 API 可以把另一个应用的 `NSStatusItem` 直接放进自定义面板。面板里显示的仍是代理图标，真实图标由 macOS 管理。两条系统路径分开实现：
 
 - macOS 14–26：使用已有分隔符与经过几何检查的 ⌘-拖动；
-- macOS 27+：动态连接 MenuBarAgent 的私有服务，向系统提交“允许可见的应用”列表。更新时先获取新断言、再释放旧断言，避免所有图标瞬间闪现；
+- macOS 27+：动态创建 MenuBarClientCore 的私有 assessment-mode 断言，向系统提交“允许可见的应用”列表。更新时先激活新断言、再释放旧断言，避免所有图标瞬间闪现；
 - 如果私有服务、可访问身份或目标几何无法确认，操作会失败开放（fail-open）：不持久化新收纳项，真实图标保持可见。
 
 这不是把图标“复制”进面板。私有接口可能随系统更新变化，也不适用于 Mac App Store 发布。
@@ -66,7 +66,7 @@ xcodebuild -project FoldBar.xcodeproj \
 
 ## 技术与许可证边界
 
-本项目使用 AppKit、CoreGraphics、ScreenCaptureKit、Accessibility 和 ServiceManagement API。macOS 27 路径另外动态调用 MenuBarAgent/BaseBoard 的私有可见性限制接口，并与 14–26 的公开 API 实现隔离。
+本项目使用 AppKit、CoreGraphics、ScreenCaptureKit、Accessibility 和 ServiceManagement API。macOS 27 路径另外动态调用 MenuBarClientCore 的私有 assessment-mode 可见性断言，并与 14–26 的公开 API 实现隔离。
 
 实现参考并改编了 MIT 许可的 [MenubarHide](https://github.com/junior-rj/menubar-hide)，并保留其许可证。只研究了 Ice 的产品思路和公开问题；**没有复制 Ice 的 GPL-3.0 源码**。
 

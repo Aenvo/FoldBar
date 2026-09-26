@@ -3,23 +3,21 @@
 ## macOS 27 independent visibility candidate — 2026-09-26
 
 The macOS 27 architecture no longer treats the system `«` control as
-FoldBar's storage boundary. FoldBar dynamically loads BaseBoard and
-MenuBarClientCore, connects to
-`com.apple.MenuBarAgent.visibility-restriction`, and submits an application
-allowlist through `MBVisibilityRestrictionXPCServer`. macOS 14–26 retain the
+FoldBar's storage boundary. FoldBar dynamically loads MenuBarClientCore and
+creates an `MBAssessmentModeAssertion` with an
+`MBAssessmentModeConfiguration` application allowlist. macOS 14–26 retain the
 existing two-`NSStatusItem` separator implementation.
 
-A standalone live probe and the formal adapter on macOS 27 both acquired and
-released visibility assertions successfully. MenuBarAgent reported the
-corresponding activation and invalidation, the adapter callback changed from
-inactive to active, and the selected CodexSquad menu item disappeared while
-unmanaged items remained visible. The first adapter candidate exposed a
-MainActor callback-isolation crash; the callback was made nonisolated and the
-rebuilt adapter completed the same activation/invalidation exercise without a
-new crash report. The formal adapter loads no private framework on macOS 26 or
-earlier, preserves all known system items, acquires a replacement assertion
-before releasing the old one, and fails open if any runtime class, protocol,
-endpoint, or completion is unavailable.
+The first independent-visibility candidate called
+`MBVisibilityRestrictionXPCServer` directly. Its completion returned no error,
+so FoldBar persisted the managed bundle and displayed its proxy, but the raw
+request did not enter the effective assessment visibility session. The real
+menu-bar item therefore stayed rendered, producing the reported duplicate.
+The final adapter uses the framework's high-level assertion and passes the
+`NSNumber` raw values of all macOS 27 `MBSystemItemIdentifier` cases instead of
+display-name strings. It activates a replacement assertion before invalidating
+the old one, loads no private framework on macOS 26 or earlier, and fails open
+if any runtime class, selector, configuration, or completion is unavailable.
 
 The macOS 27 managed set is persisted by application bundle identifier. This is
 an observed limitation of the private service: applications that publish more
@@ -38,15 +36,20 @@ and the macOS 27.0 SDK:
 - Code-signature structural verification (`codesign --verify --deep --strict`):
   passed; identifier `local.foldbar.app`, team `42MUMXKY79`.
 - Installed executable SHA-256:
-  `fa3f1c28f9fb2f78353703c914d966e525760e22b217f0101e433be283a3de36`.
-- The exact candidate launched from `/Applications/FoldBar.app` as PID 69459;
-  no crash report newer than the diagnosed 2026-09-24 callback failure was
-  created during the post-install launch check.
+  `5ff2804f2903db8fe21924e20441867c4700371cfa5043e2e0a9a277824cb8cb`.
+- The exact candidate launched from `/Applications/FoldBar.app` as PID 3850.
+  It loaded the five bundle identifiers already persisted by the user's prior
+  imports and removed all five real glyphs from the rendered menu bar while
+  leaving FoldBar, Wi-Fi, battery, temperature, Control Center, and the clock
+  visible.
 
-The private assertion's activation, selective hiding, release, and quit-time
-invalidation have live evidence. End-to-end panel import, proxy activation,
-promotion, and the macOS 26 legacy regression remain user-acceptance items;
-unit and build evidence alone do not claim those interactive paths passed.
+Live assertion replacement first hid all five managed applications, then
+removed only `com.openai.codex` from the managed set: only the ChatGPT glyph
+returned while the other four stayed hidden. Terminating the diagnostic
+process restored every real glyph, confirming fail-open connection cleanup.
+The direct drag gesture on the newly installed build and the macOS 26 legacy
+regression remain user-acceptance items; the duplicate-rendering failure itself
+is reproduced and corrected by installed-runtime evidence.
 
 ## macOS 27 compatibility candidate — 2026-09-20
 

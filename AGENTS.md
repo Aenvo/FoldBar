@@ -7,7 +7,7 @@ This file applies to the entire FoldBar repository. FoldBar is a lightweight mac
 Preserve the product model:
 
 - On macOS 14–26, FoldBar owns two registered `NSStatusItem`s: an always-visible trigger and a separator. Collapsing enlarges the separator so status items on its managed side are parked off-screen by macOS.
-- On macOS 27 and newer, FoldBar dynamically connects to MenuBarAgent's private visibility-restriction service and maintains its own persistent set of managed application bundle identifiers. The system `«` is independent and must never be opened, clicked, or used as FoldBar's storage boundary.
+- On macOS 27 and newer, FoldBar dynamically creates MenuBarClientCore's private `MBAssessmentModeAssertion` with an `MBAssessmentModeConfiguration` allowlist and maintains its own persistent set of managed application bundle identifiers. The system `«` is independent and must never be opened, clicked, or used as FoldBar's storage boundary.
 - macOS 27 keeps only FoldBar's trigger registered. The legacy separator object is removed before first presentation because even a zero-length `NSSceneStatusItem` reserves a visible outer slot.
 - The macOS 27 private interface is application-granular. If one application publishes multiple menu extras, importing or promoting one imports or promotes all of that application's menu extras. Surface this limitation honestly; do not claim per-item control on 27.
 - The overflow panel shows in-memory screenshots of the real status-item windows. It does not take ownership of another app's `NSStatusItem`.
@@ -16,6 +16,7 @@ Preserve the product model:
 - On macOS 27, clicking a proxy temporarily allows that bundle, re-resolves its AX menu extra, dispatches the validated press, and reapplies the managed set after the target interaction. Dragging to “keep visible” removes that bundle from the private assertion; importing adds it. No synthetic Command-drag is used for 27 membership changes.
 - On macOS 14–26, retain the validated separator-relative click and Command-drag implementation.
 - A private-service or identity failure is fail-open: do not persist the new managed bundle, do not hide an unverified application, and restore the prior assertion when possible. Releasing or losing FoldBar's connection must restore real items.
+- Do not replace the high-level assessment assertion with a direct `MBVisibilityRestrictionXPCServer` call. On macOS 27 the low-level call can complete without an error while leaving third-party items rendered. `MBAssessmentModeConfiguration` also requires `NSNumber` raw `MBSystemItemIdentifier` values, not display-name strings.
 
 Do not copy Ice GPL source or claim that the panel contains real third-party views. The macOS 27 adapter must remain clean-room, dynamically loaded, narrowly scoped, and isolated from the macOS 14–26 path.
 
@@ -138,7 +139,7 @@ Record what was actually observed. Do not convert an incomplete interactive pass
 
 ## Licensing and release boundaries
 
-FoldBar uses public AppKit, CoreGraphics, ScreenCaptureKit, Accessibility, and ServiceManagement APIs. On macOS 27 it also dynamically resolves a private MenuBarAgent/BaseBoard visibility-restriction interface; this can change without compatibility guarantees and is not suitable for App Store distribution. It contains adapted MIT-licensed MenubarHide work covered by `THIRD_PARTY_NOTICES.md`. Ice may be studied for product behavior and public issue context, but no GPL-3.0 Ice source may be copied into this repository.
+FoldBar uses public AppKit, CoreGraphics, ScreenCaptureKit, Accessibility, and ServiceManagement APIs. On macOS 27 it also dynamically resolves MenuBarClientCore's private assessment-mode visibility assertion; this can change without compatibility guarantees and is not suitable for App Store distribution. It contains adapted MIT-licensed MenubarHide work covered by `THIRD_PARTY_NOTICES.md`. Ice may be studied for product behavior and public issue context, but no GPL-3.0 Ice source may be copied into this repository.
 
 The checked-in 0.2.0 ZIP is Apple Development signed for local handoff. It is not Developer ID signed, notarized, stapled, or a public release. Do not claim otherwise, create a tag or GitHub Release, notarize, publish, push, or change remote state without explicit user authorization.
 
