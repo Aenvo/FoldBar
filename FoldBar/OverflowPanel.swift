@@ -209,10 +209,8 @@ final class OverflowPanel {
     func show(
         items: [CapturedItem],
         below anchorFrame: NSRect,
-        usesSystemOverflow: Bool,
         onClick: @escaping @MainActor (CapturedItem) -> Void,
         onPromote: @escaping @MainActor (CapturedItem) -> Void,
-        onExpand: @escaping @MainActor () -> Void,
         onSettings: @escaping @MainActor () -> Void,
         shouldDeferDismissalForExternalMouseDown: @escaping @MainActor (NSEvent) -> Bool,
         onDismiss: @escaping @MainActor () -> Void
@@ -225,7 +223,6 @@ final class OverflowPanel {
         let content = OverflowPanelView(
             items: items,
             dragState: dragState,
-            usesSystemOverflow: usesSystemOverflow,
             onClick: { [weak self] item in
                 Task { @MainActor in
                     self?.close()
@@ -237,10 +234,6 @@ final class OverflowPanel {
                     self?.close()
                     onPromote(item)
                 }
-            },
-            onExpand: { [weak self] in
-                self?.close()
-                onExpand()
             },
             onSettings: { [weak self] in
                 self?.close()
@@ -448,10 +441,8 @@ enum OverflowIconLayout {
 private struct OverflowPanelView: View {
     let items: [CapturedItem]
     @ObservedObject var dragState: OverflowDragState
-    let usesSystemOverflow: Bool
     let onClick: (CapturedItem) -> Void
     let onPromote: (CapturedItem) -> Void
-    let onExpand: () -> Void
     let onSettings: () -> Void
 
     @State private var isPromoteTargeted = false
@@ -535,11 +526,6 @@ private struct OverflowPanelView: View {
                 Text("FoldBar")
                     .font(.system(size: 17, weight: .semibold))
                 Spacer()
-                if !usesSystemOverflow {
-                    Button("展开", action: onExpand)
-                        .buttonStyle(.borderless)
-                        .help("展开左侧真实菜单栏图标，并保持展开")
-                }
                 Button("设置", systemImage: "gearshape", action: onSettings)
                     .labelStyle(.iconOnly)
                     .buttonStyle(.borderless)

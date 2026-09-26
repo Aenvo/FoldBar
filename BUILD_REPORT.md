@@ -41,8 +41,10 @@ system-overflow explanation. The remaining Settings action now uses the native
 `gearshape` symbol with an icon-only label. An installed-app capture confirms
 that the header renders only the gear glyph, while accessibility inspection
 retains its settings help text. The visible panel text contains only the FoldBar
-title and the keep-visible drop-zone copy. The legacy macOS 14–26 Expand action
-remains available because it still exposes the real separator-managed section.
+title and the keep-visible drop-zone copy. The same header and toggle flow now
+applies on macOS 14–26: the legacy-only Expand action has been removed, so the
+FoldBar arrow opens or closes the panel and the header contains only Settings
+on every supported release.
 
 Final verification used macOS 27.0 (26A428), Xcode 27.0 (27A266a), Swift 6.4,
 and the macOS 27.0 SDK:
@@ -54,8 +56,8 @@ and the macOS 27.0 SDK:
 - Code-signature structural verification (`codesign --verify --deep --strict`):
   passed; identifier `local.foldbar.app`, team `42MUMXKY79`.
 - Installed executable SHA-256:
-  `1aa3b9fd4f5c7e3e522eb8196d300948c9545a68762f4189d8c1a68ac8f54e15`.
-- The exact candidate launched from `/Applications/FoldBar.app` as PID 7704.
+  `51d66ab328d3bd22b65f0984acb7c00355cf8c9f203658ec1940066910be8538`.
+- The exact candidate launched from `/Applications/FoldBar.app` as PID 8460.
   It loaded the managed bundle identifiers already persisted by the user's
   prior imports and removed their real glyphs from the rendered menu bar while
   leaving FoldBar, Wi-Fi, battery, temperature, Control Center, and the clock

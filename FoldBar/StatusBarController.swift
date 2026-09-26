@@ -427,10 +427,8 @@ final class StatusBarController {
         panel.show(
             items: items,
             below: anchor,
-            usesSystemOverflow: MenuBarItemScanner.usesAccessibilityBackend,
             onClick: { [weak self] item in self?.activate(item) },
             onPromote: { [weak self] item in self?.promoteToMenuBar(item) },
-            onExpand: { [weak self] in self?.showExpandedMenuBar() },
             onSettings: { [weak self] in self?.settingsPanel.show() },
             shouldDeferDismissalForExternalMouseDown: { [weak self] event in
                 self?.shouldDeferPanelDismissal(for: event) ?? false
