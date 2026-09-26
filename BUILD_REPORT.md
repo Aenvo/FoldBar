@@ -1,6 +1,54 @@
 # FoldBar build report
 
-## macOS 27 compatibility candidate — 2026-09-19
+## macOS 27 independent visibility candidate — 2026-09-26
+
+The macOS 27 architecture no longer treats the system `«` control as
+FoldBar's storage boundary. FoldBar dynamically loads BaseBoard and
+MenuBarClientCore, connects to
+`com.apple.MenuBarAgent.visibility-restriction`, and submits an application
+allowlist through `MBVisibilityRestrictionXPCServer`. macOS 14–26 retain the
+existing two-`NSStatusItem` separator implementation.
+
+A standalone live probe and the formal adapter on macOS 27 both acquired and
+released visibility assertions successfully. MenuBarAgent reported the
+corresponding activation and invalidation, the adapter callback changed from
+inactive to active, and the selected CodexSquad menu item disappeared while
+unmanaged items remained visible. The first adapter candidate exposed a
+MainActor callback-isolation crash; the callback was made nonisolated and the
+rebuilt adapter completed the same activation/invalidation exercise without a
+new crash report. The formal adapter loads no private framework on macOS 26 or
+earlier, preserves all known system items, acquires a replacement assertion
+before releasing the old one, and fails open if any runtime class, protocol,
+endpoint, or completion is unavailable.
+
+The macOS 27 managed set is persisted by application bundle identifier. This is
+an observed limitation of the private service: applications that publish more
+than one menu extra are imported and promoted as a group. FoldBar's panel still
+contains in-memory screenshot proxies, not third-party views. The system `«`
+continues to operate independently and is never clicked or expanded by the new
+path.
+
+Final verification used macOS 27.0 (26A428), Xcode 27.0 (27A266a), Swift 6.4,
+and the macOS 27.0 SDK:
+
+- Debug app-hosted test run: passed; all 64 Swift Testing cases passed with no
+  failures, skips, or runtime warnings.
+- Release build: passed with no source compiler warnings.
+- Release binary: universal `x86_64` + `arm64`.
+- Code-signature structural verification (`codesign --verify --deep --strict`):
+  passed; identifier `local.foldbar.app`, team `42MUMXKY79`.
+- Installed executable SHA-256:
+  `fa3f1c28f9fb2f78353703c914d966e525760e22b217f0101e433be283a3de36`.
+- The exact candidate launched from `/Applications/FoldBar.app` as PID 69459;
+  no crash report newer than the diagnosed 2026-09-24 callback failure was
+  created during the post-install launch check.
+
+The private assertion's activation, selective hiding, release, and quit-time
+invalidation have live evidence. End-to-end panel import, proxy activation,
+promotion, and the macOS 26 legacy regression remain user-acceptance items;
+unit and build evidence alone do not claim those interactive paths passed.
+
+## macOS 27 compatibility candidate — 2026-09-20
 
 Verified on macOS 27.0 (26A428) with Xcode 27.0 (27A266a), Swift 6.4, and
 the macOS 27.0 SDK.
@@ -11,18 +59,26 @@ the macOS 27.0 SDK.
 - Release binary: universal `x86_64` + `arm64`.
 - Code-signature structural verification (`codesign --verify --deep --strict`): passed.
 - Installed executable SHA-256:
-  `f642c60a3893271e761a3b91bb00037cb66b50fa15e5bf9a9a9e4929f25ff24a`.
+  `6c2a33b3ab94e9279538cb84fb04daca2038026b4ab7867f781ff1bed4aa84ca`.
 - Installed-runtime check: the exact `/Applications/FoldBar.app` candidate
-  launched successfully as PID 38278. An installed-app panel capture measured
-  the CodexSquad glyph at `x=109...138` inside a cell centred at `x=123.5`;
-  both its bounds and alpha-weighted centre resolve to `x=123.5`, and all three
-  source dots are present without right-edge clipping. Clicking that proxy
-  opened CodexSquad's real two-item status menu and produced no FoldBar alert.
-  A second trigger press closed the panel, leaving zero FoldBar-owned on-screen
-  panels. AppKit and Accessibility both report exactly one registered FoldBar
-  status item: the trigger. Opening the panel, activating the CodexSquad proxy,
-  and dismissing its real menu left that count at one and did not recreate the
-  reported empty slot.
+  launched successfully as PID 46081. AppKit and Accessibility report exactly
+  one registered FoldBar status item: the trigger. With no native `«` and an
+  empty panel, an unmodified drag beginning on ChatGPT was claimed by FoldBar;
+  the panel remained on screen through mouse-down, movement, and mouse-up. The
+  unchanged real icon stayed in the menu bar and the still-open panel displayed
+  `macOS 当前无折叠区；出现 « 后可收纳`, rather than dismissing, caching a fake
+  proxy, or creating a capacity-reservation slot.
+
+The immediately preceding installed build exercised the unchanged
+native-overflow import path with a temporary status-item probe. It moved from
+the visible Accessibility frame at `x=1019` to the native hidden frame at
+`x=973` in 1,376 ms, including the 494 ms system Command-drag event sequence
+and two stable hidden-position checks. No
+`com.apple.ec.MenuBar.overflow.expanded` event occurred. Reopening FoldBar
+showed the probe and LemonMonitor as the two in-panel proxies while the
+previously hidden NeatDownloadManager was visible, proving that the cache
+followed MenuBarAgent's capacity exchange rather than retaining a duplicate.
+Terminating the temporary probe removed it from the menu bar.
 
 macOS 27 no longer exposes each third-party menu extra as an individual
 WindowServer or ScreenCaptureKit window. The candidate therefore selects a
@@ -78,6 +134,23 @@ reserved range. Before an Accessibility-backed proxy click or synthetic
 Command-drag, FoldBar re-resolves the owning process, bundle identifier, item
 ordinal, semantic label when needed, and live frame. Any mismatch fails closed
 and leaves the real menu bar available for manual operation.
+
+The macOS 27 import path now preserves the already-prefetched real glyph before
+closing the panel, performs the native Command-drag, and verifies only that
+specific Accessibility identity plus the native overflow boundary. It no longer
+walks every running application for each verification poll and no longer opens
+`«` after the drop to recapture the icon. The earlier full-scan prototype took
+6,152 ms in the same installed-runtime test; the targeted path completed in
+1,376 ms and avoided the visible return/flash caused by post-import expansion.
+Two consecutive hidden readings are still required before the proxy cache is
+committed.
+
+The native overflow count on macOS 27 is capacity-managed by MenuBarAgent and
+varies with the foreground application's menu width. Moving one selected item
+to the hidden side can therefore make a previously hidden item visible; FoldBar
+updates its proxies to the final native membership instead of representing the
+operation as an unlimited custom container. macOS 14–26 retain the enlarged
+separator model and are unaffected by this rule.
 
 Live diagnosis reproduced all reported regressions and identified the former
 188-point, layer-26 FoldBar mask as the empty region. A system-only baseline had

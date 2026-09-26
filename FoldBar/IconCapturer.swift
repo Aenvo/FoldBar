@@ -24,11 +24,11 @@ enum IconCapturer {
 
     static func capture(
         _ windows: [MenuBarItemWindow],
-        allowAccessibilityRegionCapture: Bool = !MenuBarItemScanner.usesAccessibilityBackend
+        allowAccessibilityRegionCapture: Bool = true
     ) async -> [CapturedItem] {
-        // Collapsed macOS 27 items retain virtual AX frames even though their
-        // pixels are not on screen. Callers may opt in only after the native
-        // overflow control has exposed those identities in real visible slots.
+        // macOS 27 callers capture while an item is still visible, before the
+        // private MenuBarAgent assertion hides its owning bundle. A caller that
+        // only has a virtual hidden frame must opt out explicitly.
         async let images = captureImages(
             windows,
             allowAccessibilityRegionCapture: allowAccessibilityRegionCapture

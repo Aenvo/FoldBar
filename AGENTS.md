@@ -7,14 +7,17 @@ This file applies to the entire FoldBar repository. FoldBar is a lightweight mac
 Preserve the product model:
 
 - On macOS 14–26, FoldBar owns two registered `NSStatusItem`s: an always-visible trigger and a separator. Collapsing enlarges the separator so status items on its managed side are parked off-screen by macOS.
-- On macOS 27 and newer, the system `«` owns the overflow boundary. FoldBar keeps only its trigger registered; the legacy separator object is removed before first presentation because even a zero-length `NSSceneStatusItem` reserves a visible outer slot.
+- On macOS 27 and newer, FoldBar dynamically connects to MenuBarAgent's private visibility-restriction service and maintains its own persistent set of managed application bundle identifiers. The system `«` is independent and must never be opened, clicked, or used as FoldBar's storage boundary.
+- macOS 27 keeps only FoldBar's trigger registered. The legacy separator object is removed before first presentation because even a zero-length `NSSceneStatusItem` reserves a visible outer slot.
+- The macOS 27 private interface is application-granular. If one application publishes multiple menu extras, importing or promoting one imports or promotes all of that application's menu extras. Surface this limitation honestly; do not claim per-item control on 27.
 - The overflow panel shows in-memory screenshots of the real status-item windows. It does not take ownership of another app's `NSStatusItem`.
-- The overflow panel presents managed items from menu-bar right to left: the item nearest the visible side comes first and the farthest-left/system-overflow item comes last.
+- The overflow panel presents managed items in their captured menu-bar order.
 - When the managed list is empty, omit empty-state copy and expand the dashed drop zone to fill the content area below the header.
-- Clicking a proxy temporarily expands the real menu bar and forwards a click to the validated real window.
-- Dragging a proxy to “keep visible” forwards a validated Command-drag and inserts the real item immediately left of FoldBar's trigger. While the panel is open, a Command-drag that starts on a validated visible status-item window is intercepted before the real icon can leave the menu bar; FoldBar shows a proxy and, after a drop inside the panel, performs a second validated Command-drag entirely within the menu-bar strip to move the real item into the managed section.
+- On macOS 27, clicking a proxy temporarily allows that bundle, re-resolves its AX menu extra, dispatches the validated press, and reapplies the managed set after the target interaction. Dragging to “keep visible” removes that bundle from the private assertion; importing adds it. No synthetic Command-drag is used for 27 membership changes.
+- On macOS 14–26, retain the validated separator-relative click and Command-drag implementation.
+- A private-service or identity failure is fail-open: do not persist the new managed bundle, do not hide an unverified application, and restore the prior assertion when possible. Releasing or losing FoldBar's connection must restore real items.
 
-Do not replace this with Ice private-CGS behavior or claim that the panel contains real third-party views.
+Do not copy Ice GPL source or claim that the panel contains real third-party views. The macOS 27 adapter must remain clean-room, dynamically loaded, narrowly scoped, and isolated from the macOS 14–26 path.
 
 ## Source of truth and repository layout
 
@@ -22,9 +25,10 @@ Do not replace this with Ice private-CGS behavior or claim that the panel contai
 
 Key files:
 
-- `FoldBar/FoldBarApp.swift`: SwiftUI entry point and application lifecycle. Termination must expand the separator.
+- `FoldBar/FoldBarApp.swift`: SwiftUI entry point and application lifecycle. Termination must expand the legacy separator or release the macOS 27 visibility assertion.
 - `FoldBar/StatusBarController.swift`: status items, collapse/expand state machine, cached capture flow, permission onboarding, menu actions, and login-item control.
 - `FoldBar/MenuBarItemScanner.swift`: discovery and filtering of menu-bar `NSStatusBarWindow` records.
+- `FoldBar/MenuBarVisibilityRestriction.swift`: dynamically loaded macOS 27 MenuBarAgent assertion, bundle allowlist, and managed-bundle persistence.
 - `FoldBar/IconCapturer.swift`: per-window ScreenCaptureKit screenshots. Images stay in memory.
 - `FoldBar/OverflowPanel.swift`: non-activating panel, adaptive five-column layout, click targets, and drag destination.
 - `FoldBar/EventForwarder.swift`: synthetic click and Command-drag events.
@@ -69,7 +73,7 @@ For documentation-only changes, `git diff --check` plus inspection is sufficient
 Before committing code, at minimum verify:
 
 - `xcodegen generate` leaves the tracked project consistent with `project.yml`.
-- All Swift Testing tests pass. The 0.2.0 baseline is 14 passing tests.
+- All Swift Testing tests pass.
 - A Release build completes without source warnings.
 - `git diff --check` passes and no DerivedData or user-specific Xcode files are staged.
 
@@ -107,10 +111,10 @@ Treat synthetic input and status-item preference recovery as high-risk code.
 - If a real item cannot be resolved safely, leave the menu bar expanded and ask the user to interact manually.
 - Never synthesize events into ordinary application windows or arbitrary screen coordinates.
 - Snapshot only sane `NSStatusItem Preferred Position` values, never restore paths outside the user's own preference domains, and never restore FoldBar's own domain through the generic recovery loop.
-- On termination, cancel pending work, close the panel, remove monitors, and expand the separator so third-party items are not left parked off-screen.
+- On termination, cancel pending work, close the panel, remove monitors, expand the legacy separator, and invalidate the macOS 27 visibility connection so third-party items are restored.
 - Preserve the pre-collapse capture cache. Opening the panel must not visibly expand the real menu bar merely to take screenshots.
-- Promotion may temporarily reduce FoldBar's trigger length and then its separator length to zero to free space beside a notch. Do not use `isVisible = false`, because the system can persist that state across launches. Re-resolve the live source after each layout change, send no event unless the full source is inside that display's visible menu-bar segment, and restore both own lengths after every success, failure, cancellation, and quit.
-- Proxy activation uses the same temporary trigger-then-separator width reduction when a managed item would otherwise remain behind the notch. Re-resolve the live frame, forward no click unless the complete frame is inside the display's visible menu-bar segment, preserve item order, and restore both own lengths on every exit.
+- On macOS 14–26, promotion may temporarily reduce FoldBar's trigger length and then its separator length to zero to free space beside a notch. Do not use `isVisible = false`, because the system can persist that state across launches. Re-resolve the live source after each layout change, send no event unless the full source is inside that display's visible menu-bar segment, and restore both own lengths after every success, failure, cancellation, and quit.
+- On macOS 27, never synthesize a Command-drag for membership and never manipulate the system `«`. Acquire the replacement private assertion before releasing the old one to avoid a full-menu-bar flash.
 - Preserve each captured item's aspect ratio and the one-to-three-slot adaptive layout for text, temperature, battery, and other wide items.
 
 Add focused tests whenever scanner cutoffs, coordinate transforms, promotion geometry, recovery filtering, or grid-span rules change. Interactive behavior still requires a real menu bar; unit tests alone are not acceptance evidence.
@@ -125,8 +129,8 @@ For runtime-affecting changes, verify on a notch-equipped Mac with several third
 4. Initial collapse waits for menu-bar items to stabilize and does not permanently lose their positions.
 5. Opening the grid has no expand/capture flash.
 6. Square and wide icons keep correct proportions and occupy appropriate grid spans.
-7. Proxy click expands, resolves the current real frame, clicks the intended item, and safely collapses afterward.
-8. Drag-to-visible and panel import synthesize Command-drag only within the menu-bar strip. An import cancelled outside the panel leaves the item untouched; failed post-drag verification leaves the bar expanded with a manual fallback.
+7. Proxy click reveals only the intended managed application, resolves the current real frame, clicks the intended item, and safely reapplies the managed set afterward.
+8. On macOS 27, drag-to-visible and panel import update FoldBar's own set without opening `«`; on macOS 14–26, synthetic Command-drag remains inside the menu-bar strip. A cancelled import leaves the item untouched.
 9. Escape and outside clicks close the panel, and quitting restores the visible menu bar.
 10. Multi-display layouts, including a display left of the primary display, do not receive out-of-bounds events.
 
@@ -134,7 +138,7 @@ Record what was actually observed. Do not convert an incomplete interactive pass
 
 ## Licensing and release boundaries
 
-FoldBar uses public AppKit, CoreGraphics, ScreenCaptureKit, Accessibility, and ServiceManagement APIs. It contains adapted MIT-licensed MenubarHide work covered by `THIRD_PARTY_NOTICES.md`. Ice may be studied for product behavior and public issue context, but no GPL-3.0 Ice source may be copied into this repository.
+FoldBar uses public AppKit, CoreGraphics, ScreenCaptureKit, Accessibility, and ServiceManagement APIs. On macOS 27 it also dynamically resolves a private MenuBarAgent/BaseBoard visibility-restriction interface; this can change without compatibility guarantees and is not suitable for App Store distribution. It contains adapted MIT-licensed MenubarHide work covered by `THIRD_PARTY_NOTICES.md`. Ice may be studied for product behavior and public issue context, but no GPL-3.0 Ice source may be copied into this repository.
 
 The checked-in 0.2.0 ZIP is Apple Development signed for local handoff. It is not Developer ID signed, notarized, stapled, or a public release. Do not claim otherwise, create a tag or GitHub Release, notarize, publish, push, or change remote state without explicit user authorization.
 

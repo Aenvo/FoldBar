@@ -140,6 +140,22 @@ final class MenuBarCommandDragMonitor {
         return flags.intersection(applicationModifiers).isEmpty
     }
 
+    static func acceptsImportMouseDown(
+        at point: CGPoint,
+        among candidates: [MenuBarItemWindow],
+        flags: CGEventFlags,
+        allowsDirectDrag: Bool
+    ) -> Bool {
+        guard sourceWindow(at: point, among: candidates) != nil else {
+            return false
+        }
+        return flags.contains(.maskCommand)
+            || acceptsDirectDragMouseDown(
+                flags: flags,
+                allowsDirectDrag: allowsDirectDrag
+            )
+    }
+
     static func exceedsDirectDragThreshold(
         from start: CGPoint,
         to current: CGPoint,
@@ -202,18 +218,21 @@ final class MenuBarCommandDragMonitor {
             guard let source = Self.sourceWindow(at: point, among: candidates) else {
                 return Unmanaged.passUnretained(event)
             }
+            let allowsDirectDrag = UserDefaults.standard.bool(
+                forKey: MenuBarDragSettings.directDragDefaultsKey
+            )
+            guard Self.acceptsImportMouseDown(
+                at: point,
+                among: candidates,
+                flags: event.flags,
+                allowsDirectDrag: allowsDirectDrag
+            ) else {
+                return Unmanaged.passUnretained(event)
+            }
             if event.flags.contains(.maskCommand) {
                 activeItem = source
                 onBegin(source, point)
                 return nil
-            }
-            guard Self.acceptsDirectDragMouseDown(
-                flags: event.flags,
-                allowsDirectDrag: UserDefaults.standard.bool(
-                    forKey: MenuBarDragSettings.directDragDefaultsKey
-                )
-            ) else {
-                return Unmanaged.passUnretained(event)
             }
             pendingDirectDrag = PendingDirectDrag(item: source, startPoint: point)
             return nil

@@ -49,6 +49,78 @@ enum MenuBarAccessibility {
         cachedSystemOverflowFrame
     }
 
+    /// Refreshes one known menu extra without walking every running
+    /// application. Import verification calls this after MenuBarAgent has
+    /// moved the item, where a full inventory scan would add several seconds
+    /// to a user-initiated drag.
+    @MainActor
+    static func refreshSnapshot(
+        for identity: MenuBarAccessibilityIdentity,
+        id: CGWindowID,
+        expectedLabel: String
+    ) -> Snapshot? {
+        guard AXIsProcessTrusted(),
+              let application = NSRunningApplication(
+                  processIdentifier: identity.processIdentifier
+              ),
+              !application.isTerminated,
+              (application.bundleIdentifier ?? "") == identity.bundleIdentifier else {
+            return nil
+        }
+
+        let elements = menuExtras(
+            in: AXUIElementCreateApplication(identity.processIdentifier)
+        )
+        guard elements.indices.contains(identity.ordinal),
+              let liveFrame = frame(of: elements[identity.ordinal]),
+              liveFrame.width > 0,
+              liveFrame.height > 0 else { return nil }
+
+        let liveLabel = preferredLabel(
+            help: stringAttribute(elements[identity.ordinal], kAXHelpAttribute),
+            description: stringAttribute(
+                elements[identity.ordinal],
+                kAXDescriptionAttribute
+            ),
+            title: stringAttribute(elements[identity.ordinal], kAXTitleAttribute),
+            appName: application.localizedName ?? ""
+        )
+        if elements.count > 1, liveLabel != expectedLabel { return nil }
+
+        let snapshot = Snapshot(
+            identity: identity,
+            id: id,
+            frame: liveFrame,
+            ownerName: application.localizedName ?? "",
+            label: liveLabel
+        )
+        if let index = cachedSnapshots.firstIndex(where: {
+            $0.identity == identity
+        }) {
+            cachedSnapshots[index] = snapshot
+        } else {
+            cachedSnapshots.append(snapshot)
+        }
+        return snapshot
+    }
+
+    /// Refreshes only MenuBarAgent's native overflow control. Its position can
+    /// shift when status items exchange visible and hidden membership.
+    @MainActor
+    static func refreshSystemOverflowFrame() -> CGRect? {
+        guard AXIsProcessTrusted(),
+              let application = NSWorkspace.shared.runningApplications.first(
+                  where: {
+                      !$0.isTerminated
+                          && $0.bundleIdentifier == "com.apple.MenuBarAgent"
+                  }
+              ) else { return nil }
+        cachedSystemOverflowFrame = nativeOverflowButtonFrame(
+            in: AXUIElementCreateApplication(application.processIdentifier)
+        )
+        return cachedSystemOverflowFrame
+    }
+
     @MainActor
     @discardableResult
     static func refresh(force: Bool = false) async -> [Snapshot] {

@@ -292,6 +292,13 @@ struct SafetyTests {
             anchorFrame: trigger,
             isCommandClick: false
         ))
+        #expect(!OverflowPanelDismissal.shouldClose(
+            for: CGPoint(x: 20, y: 20),
+            panelFrame: panel,
+            anchorFrame: trigger,
+            isCommandClick: false,
+            isImportMouseDown: true
+        ))
     }
 
     @Test("Expanded proxies fail closed when visible items leave no room")
@@ -375,30 +382,6 @@ struct SafetyTests {
         ) == nil)
     }
 
-    @Test("macOS 27 import targets the hidden side of native overflow")
-    func systemOverflowImportTarget() {
-        let item = CGRect(x: 1094, y: 5, width: 40, height: 24)
-        let overflow = CGRect(x: 994.5, y: 1, width: 17.5, height: 31)
-        let targetX = StatusBarController.systemOverflowImportTargetX(
-            itemFrame: item,
-            overflowFrame: overflow,
-            displays: [Self.main]
-        )
-        #expect(targetX == 970.5)
-
-        let movedFrame = CGRect(
-            x: (targetX ?? 0) - item.width / 2,
-            y: item.minY,
-            width: item.width,
-            height: item.height
-        )
-        #expect(movedFrame.maxX < overflow.minX)
-        #expect(MenuBarItemScanner.isHiddenBySystemOverflow(
-            movedFrame,
-            overflowFrame: overflow
-        ))
-    }
-
     @Test("Command-drag source resolution chooses the tightest matching window")
     func commandDragSourceResolution() {
         let background = MenuBarItemWindow(
@@ -439,6 +422,25 @@ struct SafetyTests {
         ))
         #expect(!MenuBarCommandDragMonitor.acceptsDirectDragMouseDown(
             flags: .maskShift,
+            allowsDirectDrag: true
+        ))
+
+        let candidate = MenuBarItemWindow(
+            id: 41,
+            frame: CGRect(x: 1200, y: 4, width: 24, height: 24),
+            ownerName: "Example",
+            windowName: "Item-0"
+        )
+        #expect(MenuBarCommandDragMonitor.acceptsImportMouseDown(
+            at: CGPoint(x: 1212, y: 16),
+            among: [candidate],
+            flags: [],
+            allowsDirectDrag: true
+        ))
+        #expect(!MenuBarCommandDragMonitor.acceptsImportMouseDown(
+            at: CGPoint(x: 900, y: 16),
+            among: [candidate],
+            flags: [],
             allowsDirectDrag: true
         ))
     }

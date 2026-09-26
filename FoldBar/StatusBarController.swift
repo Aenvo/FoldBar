@@ -7,7 +7,6 @@ final class StatusBarController {
     private static let collapsedLength: CGFloat = 10_000
     private static let initialStablePolls = 3
     private static let initialMaxPolls = 45
-    private static let nativeOverflowArtworkSettleMilliseconds = 650
     private static var collapsedItemPollMilliseconds: Int {
         MenuBarItemScanner.usesAccessibilityBackend ? 5_000 : 600
     }
@@ -23,12 +22,17 @@ final class StatusBarController {
         subsystem: "local.foldbar.app",
         category: "Promotion"
     )
+    private static let importLogger = Logger(
+        subsystem: "local.foldbar.app",
+        category: "Import"
+    )
 
     private let toggleItem: NSStatusItem
     private let separatorItem: NSStatusItem
     private let panel = OverflowPanel()
     private let expandedMenuBarPanel = ExpandedMenuBarPanel()
     private let settingsPanel = AppearanceSettingsPanel()
+    private let visibilityRestriction = MenuBarVisibilityRestriction()
 
     private var initialCollapseTask: Task<Void, Never>?
     private var autoCollapseTask: Task<Void, Never>?
@@ -46,6 +50,7 @@ final class StatusBarController {
     private var importPreviewRequestedIDs: Set<CGWindowID> = []
     private var cachedItems: [CapturedItem] = []
     private var knownManagedWindowIDs: Set<CGWindowID> = []
+    private var managedBundleIdentifiers = ManagedMenuBarBundles.load()
     private var isImportTargetingToggle = false
     private var preparingCollapse = false
     private var permissionFlowActive = false
@@ -138,6 +143,12 @@ final class StatusBarController {
         !MenuBarItemScanner.usesAccessibilityBackend(for: majorVersion)
     }
 
+    nonisolated static func usesPrivateVisibilityRestriction(
+        for majorVersion: Int
+    ) -> Bool {
+        MenuBarVisibilityRestriction.isSupported(on: majorVersion)
+    }
+
     func expandForQuit() {
         initialCollapseTask?.cancel()
         cacheCaptureTask?.cancel()
@@ -154,6 +165,7 @@ final class StatusBarController {
         disarmMenuBarImport()
         panel.close()
         expandedMenuBarPanel.close()
+        visibilityRestriction.invalidate()
         // Promotion and proxy activation can temporarily reduce FoldBar's own
         // status-item lengths beside a notch. Quitting restores both immediately.
         if !MenuBarItemScanner.usesAccessibilityBackend {
@@ -214,10 +226,13 @@ final class StatusBarController {
         panel.close()
         expandedMenuBarPanel.close()
 
-        let windows: [MenuBarItemWindow]
         if MenuBarItemScanner.usesAccessibilityBackend {
-            windows = MenuBarItemScanner.systemOverflowHiddenItems()
-        } else if let separatorFrame = separatorItem.button?.window?.frame {
+            collapseUsingPrivateVisibilityRestriction()
+            return
+        }
+
+        let windows: [MenuBarItemWindow]
+        if let separatorFrame = separatorItem.button?.window?.frame {
             windows = MenuBarItemScanner.itemsLeft(of: separatorFrame.minX)
         } else {
             windows = []
@@ -241,41 +256,6 @@ final class StatusBarController {
             return
         }
 
-        if MenuBarItemScanner.usesAccessibilityBackend {
-            let cachedIDs = Set(cachedItems.map(\.id))
-            guard !cachedIDs.isSuperset(of: knownIDs) else {
-                completeCollapse(knownManagedWindowIDs: knownIDs)
-                return
-            }
-
-            // macOS 27 keeps collapsed AX frames alive but does not render
-            // pixels at those virtual coordinates. Before FoldBar enters its
-            // collapsed state, briefly use the public native overflow control
-            // to expose the real status artwork, cache it, and restore the
-            // system control to its collapsed state. Opening the panel later is
-            // therefore immediate and never captures an app icon substitute.
-            preparingCollapse = true
-            cacheCaptureTask?.cancel()
-            cacheCaptureTask = Task { @MainActor [weak self] in
-                guard let self else { return }
-                let captured = await self.captureNativeSystemOverflowItems(
-                    expectedIDs: knownIDs
-                )
-                guard !Task.isCancelled, !self.isCollapsed else { return }
-                if !captured.isEmpty {
-                    let freshByID = Dictionary(
-                        uniqueKeysWithValues: captured.map { ($0.id, $0) }
-                    )
-                    self.cachedItems = windows.compactMap { window in
-                        freshByID[window.id]
-                            ?? self.cachedItems.first { $0.id == window.id }
-                    }
-                }
-                self.completeCollapse(knownManagedWindowIDs: knownIDs)
-            }
-            return
-        }
-
         // Capture while the real items are already visible. The panel can then
         // open from memory with no flash-expand and no ScreenCaptureKit wait.
         preparingCollapse = true
@@ -290,126 +270,68 @@ final class StatusBarController {
         }
     }
 
-    private func captureNativeSystemOverflowItems(
-        expectedIDs: Set<CGWindowID>
-    ) async -> [CapturedItem] {
-        guard !expectedIDs.isEmpty,
-              EventForwarder.isTrusted() else { return [] }
-
-        await MenuBarItemScanner.refreshStatusWindows(force: true)
-        guard let overflowFrame = MenuBarItemScanner.systemOverflowFrame(),
-              let activationPoint = Self.activationPoint(
-                  itemFrame: overflowFrame,
-                  visibleSegments: Self.activeVisibleMenuBarSegments()
-              ) else { return [] }
-
-        var items = MenuBarItemScanner.systemOverflowHiddenItems().filter {
-            expectedIDs.contains($0.id)
-        }
-        guard Set(items.map(\.id)) == expectedIDs else { return [] }
-
-        // macOS 27 must render the native overflow artwork before a public
-        // screen capture can see it. Freeze the current strip above that brief
-        // expand/collapse transaction so background cache refreshes no longer
-        // make the real menu bar jump or flash. If the shield itself cannot be
-        // captured, keep the bar untouched and use safe in-memory fallbacks.
-        guard let captureShield = await MenuBarCaptureShield.present(
-            covering: overflowFrame
-        ) else {
-            return await IconCapturer.capture(
-                items,
-                allowAccessibilityRegionCapture: false
-            )
-        }
-        defer { captureShield.close() }
-
-        if !MenuBarItemScanner.systemOverflowItemsAreExpanded(
-            items,
-            overflowFrame: overflowFrame
-        ) {
-            EventForwarder.click(
-                at: activationPoint,
-                eventUserData: MenuBarCommandDragMonitor.syntheticClickEventMarker
-            )
-            guard await waitForNativeSystemOverflow(
-                expanded: true,
-                expectedIDs: expectedIDs
-            ) else {
-                await restoreCollapsedNativeSystemOverflow()
-                return []
+    private func collapseUsingPrivateVisibilityRestriction() {
+        let windows = MenuBarItemScanner.panelDisplayOrder(
+            MenuBarItemScanner.statusWindows().filter {
+                managedBundleIdentifiers.contains($0.bundleIdentifier)
             }
-            items = MenuBarItemScanner.systemOverflowHiddenItems().filter {
-                expectedIDs.contains($0.id)
-            }
-        }
-
-        // AX geometry reaches its final slot almost immediately, but macOS 27's
-        // compositor can take roughly 650 ms to slide the real artwork into that
-        // slot. Capturing earlier produces a valid-looking partial glyph, so wait
-        // for the measured transition to finish before accepting any pixels.
-        guard (try? await Task.sleep(
-            for: .milliseconds(Self.nativeOverflowArtworkSettleMilliseconds)
-        )) != nil,
-              !Task.isCancelled else {
-            await restoreCollapsedNativeSystemOverflow()
-            return []
-        }
-
-        let captured = await IconCapturer.capture(
-            items,
-            allowAccessibilityRegionCapture: true
         )
+        let knownIDs = Set(windows.map(\.id))
 
-        await restoreCollapsedNativeSystemOverflow()
-        return captured
-    }
-
-    private func restoreCollapsedNativeSystemOverflow() async {
-        // FoldBar's collapsed state must never coexist with system-expanded
-        // copies. Re-resolve both membership and the control before clicking.
-        await MenuBarItemScanner.refreshStatusWindows(force: true)
-        let liveItems = MenuBarItemScanner.systemOverflowHiddenItems()
-        guard let liveOverflowFrame = MenuBarItemScanner.systemOverflowFrame(),
-              MenuBarItemScanner.systemOverflowItemsAreExpanded(
-                  liveItems,
-                  overflowFrame: liveOverflowFrame
-              ),
-              let liveActivationPoint = Self.activationPoint(
-                  itemFrame: liveOverflowFrame,
-                  visibleSegments: Self.activeVisibleMenuBarSegments()
-              ) else { return }
-
-        EventForwarder.click(
-            at: liveActivationPoint,
-            eventUserData: MenuBarCommandDragMonitor.syntheticClickEventMarker
-        )
-        if !Task.isCancelled {
-            _ = await waitForNativeSystemOverflow(
-                expanded: false,
-                expectedIDs: Set(liveItems.map(\.id))
-            )
+        guard managedBundleIdentifiers.isEmpty || IconCapturer.hasPermission() else {
+            cachedItems = []
+            isCollapsed = false
+            updateToggleIcon()
+            return
         }
-    }
 
-    private func waitForNativeSystemOverflow(
-        expanded: Bool,
-        expectedIDs: Set<CGWindowID>
-    ) async -> Bool {
-        for _ in 0..<8 {
-            guard (try? await Task.sleep(for: .milliseconds(55))) != nil,
-                  !Task.isCancelled else { return false }
-            await MenuBarItemScanner.refreshStatusWindows(force: true)
-            let items = MenuBarItemScanner.systemOverflowHiddenItems().filter {
-                expectedIDs.contains($0.id)
+        preparingCollapse = true
+        cacheCaptureTask?.cancel()
+        cacheCaptureTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let reusable = windows.compactMap { window -> CapturedItem? in
+                let existing = self.cachedItems.first { cached in
+                    if let liveIdentity = window.accessibilityIdentity,
+                       let cachedIdentity = cached.window.accessibilityIdentity {
+                        return liveIdentity.bundleIdentifier
+                            == cachedIdentity.bundleIdentifier
+                            && liveIdentity.ordinal == cachedIdentity.ordinal
+                    }
+                    return cached.window.bundleIdentifier == window.bundleIdentifier
+                }
+                guard let existing else { return nil }
+                return CapturedItem(
+                    window: window,
+                    image: existing.image,
+                    hoverText: window.displayName,
+                    ownerProcessIdentifier: window.ownerProcessIdentifier
+                )
             }
-            guard Set(items.map(\.id)) == expectedIDs else { continue }
-            let isExpanded = MenuBarItemScanner.systemOverflowItemsAreExpanded(
-                items,
-                overflowFrame: MenuBarItemScanner.systemOverflowFrame()
+            let reusableIDs = Set(reusable.map(\.id))
+            let missing = windows.filter { !reusableIDs.contains($0.id) }
+            let newlyCaptured = missing.isEmpty
+                ? []
+                : await IconCapturer.capture(missing)
+            guard !Task.isCancelled, !self.isCollapsed else { return }
+            let applied = await self.visibilityRestriction.apply(
+                hiddenBundleIdentifiers: self.managedBundleIdentifiers
             )
-            if isExpanded == expanded { return true }
+            guard !Task.isCancelled else { return }
+            guard applied else {
+                self.preparingCollapse = false
+                self.cacheCaptureTask = nil
+                self.isCollapsed = false
+                self.updateToggleIcon()
+                return
+            }
+            let byID = Dictionary(
+                uniqueKeysWithValues: (reusable + newlyCaptured).map {
+                    ($0.id, $0)
+                }
+            )
+            self.cachedItems = windows.compactMap { byID[$0.id] }
+            self.completeCollapse(knownManagedWindowIDs: knownIDs)
         }
-        return false
     }
 
     private func completeCollapse(
@@ -419,11 +341,9 @@ final class StatusBarController {
         cacheCaptureTask = nil
         _ = MenuBarArrangement.captureAndSave()
         if MenuBarItemScanner.usesAccessibilityBackend {
-            // macOS 27 owns menu-bar overflow and exposes it through the `«`
-            // control. An app-owned overlay here competes with that compositor,
-            // leaving a large blank reservation and capturing the system control
-            // as if it were an app icon. Keep FoldBar's boundary compact and let
-            // the system decide which real status items fit on screen.
+            // macOS 27 hides FoldBar-managed bundles through MenuBarAgent. No
+            // separator slot is registered, so FoldBar cannot leave a blank gap
+            // and remains independent from the system `«` overflow control.
             separatorItem.length = 0
         } else {
             separatorItem.length = Self.collapsedLength
@@ -511,6 +431,9 @@ final class StatusBarController {
             onPromote: { [weak self] item in self?.promoteToMenuBar(item) },
             onExpand: { [weak self] in self?.showExpandedMenuBar() },
             onSettings: { [weak self] in self?.settingsPanel.show() },
+            shouldDeferDismissalForExternalMouseDown: { [weak self] event in
+                self?.shouldDeferPanelDismissal(for: event) ?? false
+            },
             onDismiss: { [weak self] in self?.disarmMenuBarImport() }
         )
         armMenuBarImport()
@@ -520,6 +443,12 @@ final class StatusBarController {
         hidden: [MenuBarItemWindow],
         captured: [CapturedItem]
     ) {
+        if MenuBarItemScanner.usesAccessibilityBackend {
+            let items = cachedItems.filter {
+                managedBundleIdentifiers.contains($0.window.bundleIdentifier)
+            }
+            return (items.map(\.window), items)
+        }
         let hidden = currentHiddenItems()
         let cachedByID = Dictionary(uniqueKeysWithValues: cachedItems.map { ($0.id, $0) })
         let items = MenuBarItemScanner.panelDisplayOrder(hidden).compactMap {
@@ -530,7 +459,11 @@ final class StatusBarController {
 
     private func currentHiddenItems() -> [MenuBarItemWindow] {
         if MenuBarItemScanner.usesAccessibilityBackend {
-            return MenuBarItemScanner.systemOverflowHiddenItems()
+            return cachedItems.compactMap {
+                managedBundleIdentifiers.contains($0.window.bundleIdentifier)
+                    ? $0.window
+                    : nil
+            }
         }
         guard let separatorMinX = separatorItem.button?.window?.frame.minX else {
             return []
@@ -541,9 +474,8 @@ final class StatusBarController {
     private func showExpandedMenuBar() {
         guard isCollapsed else { return }
         if MenuBarItemScanner.usesAccessibilityBackend {
-            // The public macOS 27 API does not provide a safe way to drive the
-            // system's overflow control. Its own `«` button remains the source
-            // of truth, so this panel action is deliberately just Close.
+            // macOS 27 uses FoldBar's independent managed set. The title action
+            // closes the panel; it must not drive the unrelated system `«`.
             panel.close()
             return
         }
@@ -593,6 +525,10 @@ final class StatusBarController {
                       self.automaticPlacementTask == nil else { continue }
 
                 await MenuBarItemScanner.refreshStatusWindows()
+                if MenuBarItemScanner.usesAccessibilityBackend {
+                    self.refreshPrivateManagedIdentities()
+                    continue
+                }
                 let hidden = self.currentHiddenItems()
                 let currentIDs = Set(hidden.map(\.id))
                 self.knownManagedWindowIDs.formIntersection(currentIDs)
@@ -611,6 +547,34 @@ final class StatusBarController {
     private func disarmCollapsedItemMonitor() {
         collapsedItemMonitorTask?.cancel()
         collapsedItemMonitorTask = nil
+    }
+
+    private func refreshPrivateManagedIdentities() {
+        let liveItems = MenuBarItemScanner.statusWindows().filter {
+            managedBundleIdentifiers.contains($0.bundleIdentifier)
+        }
+        guard !liveItems.isEmpty else { return }
+
+        let existingByIdentity = Dictionary(
+            uniqueKeysWithValues: cachedItems.compactMap { item in
+                item.window.accessibilityIdentity.map { ($0, item) }
+            }
+        )
+        cachedItems = MenuBarItemScanner.panelDisplayOrder(liveItems).compactMap {
+            window in
+            guard let identity = window.accessibilityIdentity,
+                  let existing = existingByIdentity[identity]
+                    ?? cachedItems.first(where: {
+                        $0.window.bundleIdentifier == window.bundleIdentifier
+                    }) else { return nil }
+            return CapturedItem(
+                window: window,
+                image: existing.image,
+                hoverText: window.displayName,
+                ownerProcessIdentifier: window.ownerProcessIdentifier
+            )
+        }
+        knownManagedWindowIDs = Set(liveItems.map(\.id))
     }
 
     private func beginAutomaticPlacement(of items: [MenuBarItemWindow]) {
@@ -693,6 +657,14 @@ final class StatusBarController {
             if closesExpandedProxies { expandedMenuBarPanel.close() }
             return
         }
+        if MenuBarItemScanner.usesAccessibilityBackend {
+            activationTask = Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.performPrivateActivation(item)
+                self.activationTask = nil
+            }
+            return
+        }
         // Remove the transparent proxies before asking Control Center to reveal
         // the real status windows. Keeping both alive across async layout polls
         // creates the visibly doubled row reported during acceptance.
@@ -704,6 +676,62 @@ final class StatusBarController {
             await self.performActivation(item)
             self.activationTask = nil
         }
+    }
+
+    private func performPrivateActivation(_ item: CapturedItem) async {
+        let bundleIdentifier = item.window.bundleIdentifier
+        guard !bundleIdentifier.isEmpty,
+              managedBundleIdentifiers.contains(bundleIdentifier) else { return }
+
+        let temporarilyHidden = managedBundleIdentifiers.subtracting([
+            bundleIdentifier
+        ])
+        guard await visibilityRestriction.apply(
+            hiddenBundleIdentifiers: temporarilyHidden
+        ) else {
+            showAlert(
+                title: "图标暂时无法点击",
+                message: "macOS 27 没有接受这次临时显示请求。FoldBar 已保持原收纳状态。"
+            )
+            return
+        }
+
+        isCollapsed = false
+        updateToggleIcon()
+        var liveItem: MenuBarItemWindow?
+        for poll in 0..<20 {
+            if poll > 0 {
+                guard (try? await Task.sleep(for: .milliseconds(25))) != nil,
+                      !Task.isCancelled else { return }
+            }
+            liveItem = MenuBarItemScanner.refreshStatusWindow(item.window)
+            if let liveItem,
+               Self.isInVisibleMenuBarSegment(
+                   liveItem.frame,
+                   segments: Self.activeVisibleMenuBarSegments()
+               ) { break }
+            liveItem = nil
+        }
+
+        guard let liveItem,
+              let identity = liveItem.accessibilityIdentity,
+              MenuBarAccessibility.performPress(
+                  on: identity,
+                  expectedLabel: liveItem.windowName,
+                  expectedFrame: liveItem.frame
+              ) else {
+            _ = await visibilityRestriction.apply(
+                hiddenBundleIdentifiers: managedBundleIdentifiers
+            )
+            isCollapsed = true
+            updateToggleIcon()
+            showAlert(
+                title: "图标暂时无法点击",
+                message: "真实菜单栏图标没有在可点击区域稳定出现。FoldBar 已恢复收纳，没有点击其他程序。"
+            )
+            return
+        }
+        armAutoCollapse()
     }
 
     private func performActivation(_ item: CapturedItem) async {
@@ -792,6 +820,10 @@ final class StatusBarController {
     }
 
     private func promoteToMenuBar(_ item: CapturedItem) {
+        if MenuBarItemScanner.usesAccessibilityBackend {
+            promotePrivateBundleToMenuBar(item.window.bundleIdentifier)
+            return
+        }
         guard requireAccessibility() else { return }
         guard promotionTask == nil else { return }
         expandRealMenuBar()
@@ -799,6 +831,36 @@ final class StatusBarController {
         promotionTask = Task { @MainActor [weak self] in
             guard let self else { return }
             await self.performPromotion(item)
+            self.promotionTask = nil
+        }
+    }
+
+    private func promotePrivateBundleToMenuBar(_ bundleIdentifier: String) {
+        guard !bundleIdentifier.isEmpty,
+              managedBundleIdentifiers.contains(bundleIdentifier),
+              promotionTask == nil else { return }
+        promotionTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let updated = self.managedBundleIdentifiers.subtracting([
+                bundleIdentifier
+            ])
+            if await self.visibilityRestriction.apply(
+                hiddenBundleIdentifiers: updated
+            ) {
+                self.managedBundleIdentifiers = updated
+                ManagedMenuBarBundles.save(updated)
+                self.cachedItems.removeAll {
+                    $0.window.bundleIdentifier == bundleIdentifier
+                }
+                self.knownManagedWindowIDs = Set(self.cachedItems.map(\.id))
+                self.isCollapsed = true
+                self.updateToggleIcon()
+            } else {
+                self.showAlert(
+                    title: "无法移出这个应用",
+                    message: "macOS 27 没有接受可见性更新。FoldBar 已保留原收纳状态。"
+                )
+            }
             self.promotionTask = nil
         }
     }
@@ -1039,7 +1101,23 @@ final class StatusBarController {
 
         let candidates: [MenuBarItemWindow]
         if MenuBarItemScanner.usesAccessibilityBackend {
-            candidates = MenuBarItemScanner.systemOverflowVisibleItems()
+            // The system `«` may still hide unrelated items when the strip is
+            // crowded, but it is not FoldBar's storage boundary. Only accept
+            // real, currently visible items that are not in FoldBar's set.
+            let systemOverflowFrame = MenuBarItemScanner.systemOverflowFrame()
+            candidates = MenuBarItemScanner.statusWindows().filter { window in
+                !managedBundleIdentifiers.contains(window.bundleIdentifier)
+                    && Self.isInVisibleMenuBarSegment(
+                        window.frame,
+                        segments: Self.activeVisibleMenuBarSegments()
+                    )
+                    && (systemOverflowFrame.map { overflowFrame in
+                        MenuBarItemScanner.isVisibleBySystemOverflow(
+                            window.frame,
+                            overflowFrame: overflowFrame
+                        )
+                    } ?? true)
+            }
         } else {
             guard let separatorFrame = separatorItem.button?.window?.frame else {
                 return []
@@ -1056,6 +1134,19 @@ final class StatusBarController {
                 && window.frame.width < 500
                 && Self.isInMenuBarStrip(window.frame)
         }
+    }
+
+    private func shouldDeferPanelDismissal(for event: NSEvent) -> Bool {
+        guard menuBarImportMonitor.isRunning,
+              let cgEvent = event.cgEvent else { return false }
+        return MenuBarCommandDragMonitor.acceptsImportMouseDown(
+            at: cgEvent.location,
+            among: currentImportCandidates(),
+            flags: cgEvent.flags,
+            allowsDirectDrag: UserDefaults.standard.bool(
+                forKey: MenuBarDragSettings.directDragDefaultsKey
+            )
+        )
     }
 
     static func validWindowIDs(_ windowNumbers: [Int]) -> Set<CGWindowID> {
@@ -1160,6 +1251,7 @@ final class StatusBarController {
         panel.endExternalDrag()
         setImportTargetingToggle(false)
         guard target != nil else { return }
+        let previewImage = importPreviewImages[item.id]
 
         // Defer teardown until the event-tap callback has returned the consumed
         // mouse-up. Invalidating a tap from inside its own callback is fragile.
@@ -1167,16 +1259,32 @@ final class StatusBarController {
             await Task.yield()
             guard let self else { return }
             self.panel.close()
-            self.importIntoFoldBar(item)
+            self.importIntoFoldBar(item, previewImage: previewImage)
         }
     }
 
-    private func importIntoFoldBar(_ item: MenuBarItemWindow) {
+    private func importIntoFoldBar(
+        _ item: MenuBarItemWindow,
+        previewImage: NSImage?
+    ) {
         guard requireAccessibility() else { return }
+        if MenuBarItemScanner.usesAccessibilityBackend {
+            importUsingPrivateVisibilityRestriction(
+                item,
+                previewImage: previewImage
+            )
+            return
+        }
         expandRealMenuBar()
 
         Task { @MainActor [weak self] in
             guard let self else { return }
+            let diagnosticID = String(UUID().uuidString.prefix(8))
+            let startedAt = ProcessInfo.processInfo.systemUptime
+            Self.importLogger.notice(
+                "import[\(diagnosticID, privacy: .public)] begin item=\(item.id, privacy: .public) source=\(Self.frameDescription(item.frame), privacy: .public)"
+            )
+
             var sourceFrame: CGRect?
             for _ in 0..<4 {
                 try? await Task.sleep(for: .milliseconds(140))
@@ -1191,11 +1299,12 @@ final class StatusBarController {
             guard let sourceFrame,
                   self.isCurrentlyVisibleMenuBarItem(sourceFrame),
                   let targetX = self.currentImportTargetX(for: sourceFrame) else {
+                Self.importLogger.error(
+                    "import[\(diagnosticID, privacy: .public)] unavailable source=\(Self.frameDescription(sourceFrame), privacy: .public)"
+                )
                 showAlert(
                     title: "无法收纳这个图标",
-                    message: MenuBarItemScanner.usesAccessibilityBackend
-                        ? "真实图标或 macOS 27 系统溢出边界不再可确认。FoldBar 已停止操作，以避免移动错误的项目。"
-                        : "真实图标或 FoldBar 分隔符没有出现在可安全拖动的菜单栏区域。菜单栏已保持展开，你可以手动按住 ⌘ 调整。"
+                    message: "真实图标或 FoldBar 分隔符没有出现在可安全拖动的菜单栏区域。菜单栏已保持展开，你可以手动按住 ⌘ 调整。"
                 )
                 return
             }
@@ -1206,6 +1315,9 @@ final class StatusBarController {
                    expectedLabel: item.windowName,
                    expectedFrame: sourceFrame
                ) {
+                Self.importLogger.error(
+                    "import[\(diagnosticID, privacy: .public)] cancelled: accessibility identity changed"
+                )
                 showAlert(
                     title: "图标身份已经变化",
                     message: "macOS 在操作前更新了这个菜单栏图标。为避免移动错误的项目，FoldBar 已停止操作并保持菜单栏展开。"
@@ -1215,20 +1327,124 @@ final class StatusBarController {
 
             let posted = await EventForwarder.commandDrag(
                 from: CGPoint(x: sourceFrame.midX, y: sourceFrame.midY),
-                to: CGPoint(x: targetX, y: sourceFrame.midY)
+                to: CGPoint(x: targetX, y: sourceFrame.midY),
+                diagnosticID: diagnosticID
             )
-            guard posted, await self.waitForImport(of: item.id) else {
+            guard posted, await self.waitForLegacyImport(of: item.id) else {
+                Self.importLogger.error(
+                    "import[\(diagnosticID, privacy: .public)] failed posted=\(posted, privacy: .public)"
+                )
                 showAlert(
                     title: "图标没有收纳成功",
-                    message: MenuBarItemScanner.usesAccessibilityBackend
-                        ? "macOS 27 没有把这个项目放入系统溢出区。你可以在菜单栏中按住 ⌘ 将它拖到系统 `«` 的左侧。"
-                        : "macOS 没有接受这次自动拖动。菜单栏已保持展开，请按住 ⌘ 将这个真实图标拖到 FoldBar 分隔符左侧。"
+                    message: "macOS 没有接受这次自动拖动。菜单栏已保持展开，请按住 ⌘ 将这个真实图标拖到 FoldBar 分隔符左侧。"
                 )
                 return
             }
-            // Re-capture the newly managed item before the enlarged separator
-            // parks the managed side off-screen again.
-            collapse()
+
+            // macOS 14–26 still needs the separator collapse to park the newly
+            // ordered item and refresh the managed snapshot.
+            self.collapse()
+            let elapsedMilliseconds = Int(
+                (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000
+            )
+            Self.importLogger.notice(
+                "import[\(diagnosticID, privacy: .public)] succeeded elapsedMs=\(elapsedMilliseconds, privacy: .public)"
+            )
+        }
+    }
+
+    private func importUsingPrivateVisibilityRestriction(
+        _ item: MenuBarItemWindow,
+        previewImage: NSImage?
+    ) {
+        let bundleIdentifier = item.bundleIdentifier
+        guard !bundleIdentifier.isEmpty,
+              bundleIdentifier != Bundle.main.bundleIdentifier else {
+            showAlert(
+                title: "无法收纳这个图标",
+                message: "macOS 27 没有提供这个菜单栏项目的应用标识。FoldBar 没有修改菜单栏。"
+            )
+            return
+        }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            // The open-panel monitor already owns a fresh full inventory. Only
+            // re-resolve the dragged AX identity here; another all-application
+            // scan made a simple drop take several seconds on busy systems.
+            let refreshedDraggedItem = MenuBarItemScanner.refreshStatusWindow(item)
+            var sameBundleItems = MenuBarItemScanner.statusWindows().filter {
+                $0.bundleIdentifier == bundleIdentifier
+            }
+            if let refreshedDraggedItem,
+               let index = sameBundleItems.firstIndex(where: {
+                   $0.accessibilityIdentity == item.accessibilityIdentity
+               }) {
+                sameBundleItems[index] = refreshedDraggedItem
+            }
+            let liveItems = MenuBarItemScanner.panelDisplayOrder(sameBundleItems)
+            guard refreshedDraggedItem != nil,
+                  !liveItems.isEmpty,
+                  liveItems.contains(where: {
+                      $0.accessibilityIdentity == item.accessibilityIdentity
+                          || $0.windowName == item.windowName
+                  }) else {
+                self.showAlert(
+                    title: "图标身份已经变化",
+                    message: "macOS 在收纳前重建了这个菜单栏项目。FoldBar 没有隐藏任何程序，请重新拖入。"
+                )
+                return
+            }
+
+            var captured: [CapturedItem]
+            if liveItems.count == 1, let previewImage {
+                captured = [CapturedItem(
+                    window: liveItems[0],
+                    image: previewImage,
+                    hoverText: liveItems[0].displayName,
+                    ownerProcessIdentifier: liveItems[0].ownerProcessIdentifier
+                )]
+            } else {
+                captured = await IconCapturer.capture(liveItems)
+                if let previewImage,
+                   let index = captured.firstIndex(where: {
+                       $0.window.accessibilityIdentity == item.accessibilityIdentity
+                   }) {
+                    let window = captured[index].window
+                    captured[index] = CapturedItem(
+                        window: window,
+                        image: previewImage,
+                        hoverText: window.displayName,
+                        ownerProcessIdentifier: window.ownerProcessIdentifier
+                    )
+                }
+            }
+
+            let updated = self.managedBundleIdentifiers.union([
+                bundleIdentifier
+            ])
+            guard await self.visibilityRestriction.apply(
+                hiddenBundleIdentifiers: updated
+            ) else {
+                self.showAlert(
+                    title: "图标没有收纳成功",
+                    message: "macOS 27 的菜单栏服务没有接受 FoldBar 的独立收纳请求；真实图标保持可见。"
+                )
+                return
+            }
+
+            self.managedBundleIdentifiers = updated
+            ManagedMenuBarBundles.save(updated)
+            self.cachedItems.removeAll {
+                $0.window.bundleIdentifier == bundleIdentifier
+            }
+            self.cachedItems.append(contentsOf: captured)
+            self.cachedItems = self.cachedItems.sorted {
+                $0.window.frame.minX < $1.window.frame.minX
+            }
+            self.completeCollapse(
+                knownManagedWindowIDs: Set(self.cachedItems.map(\.id))
+            )
         }
     }
 
@@ -1309,25 +1525,6 @@ final class StatusBarController {
         // Move the pointer far enough past the separator that the entire item,
         // not just its center, lands on FoldBar's managed side.
         let proposed = separatorFrame.minX - itemFrame.width / 2 - 4
-        return min(max(proposed, lower), upper)
-    }
-
-    static func systemOverflowImportTargetX(
-        itemFrame: CGRect,
-        overflowFrame: CGRect,
-        displays: [CGRect]
-    ) -> CGFloat? {
-        guard let display = displays.first(where: {
-            $0.contains(CGPoint(x: itemFrame.midX, y: itemFrame.midY))
-        }) else { return nil }
-
-        let lower = display.minX + itemFrame.width / 2
-        let upper = min(
-            display.maxX - itemFrame.width / 2,
-            overflowFrame.minX - itemFrame.width / 2 - 2
-        )
-        guard lower <= upper else { return nil }
-        let proposed = overflowFrame.minX - itemFrame.width / 2 - 4
         return min(max(proposed, lower), upper)
     }
 
@@ -1579,22 +1776,17 @@ final class StatusBarController {
         frames.map { frameDescription($0) }.joined(separator: ";")
     }
 
-    private func waitForImport(of id: CGWindowID) async -> Bool {
+    private func waitForLegacyImport(of id: CGWindowID) async -> Bool {
         for _ in 0..<12 {
-            guard (try? await Task.sleep(for: .milliseconds(120))) != nil else { return false }
+            guard (try? await Task.sleep(for: .milliseconds(120))) != nil else {
+                return false
+            }
             await MenuBarItemScanner.refreshStatusWindows()
-            guard let frame = MenuBarItemScanner.frame(of: id),
-                  Self.isInMenuBarStrip(frame) else { continue }
-            if MenuBarItemScanner.usesAccessibilityBackend {
-                if let overflowFrame = MenuBarItemScanner.systemOverflowFrame(),
-                   MenuBarItemScanner.isHiddenBySystemOverflow(
-                       frame,
-                       overflowFrame: overflowFrame
-                   ) {
-                    return true
-                }
-            } else if let separatorFrame = separatorItem.button?.window?.frame,
-                      Self.isOnHiddenSide(frame, separatorFrame: separatorFrame) {
+            guard let window = MenuBarItemScanner.statusWindows().first(where: {
+                $0.id == id
+            }), Self.isInMenuBarStrip(window.frame),
+            let separatorFrame = separatorItem.button?.window?.frame else { continue }
+            if Self.isOnHiddenSide(window.frame, separatorFrame: separatorFrame) {
                 return true
             }
         }
@@ -1604,7 +1796,7 @@ final class StatusBarController {
     private func isCurrentlyVisibleMenuBarItem(_ frame: CGRect) -> Bool {
         if MenuBarItemScanner.usesAccessibilityBackend {
             guard let overflowFrame = MenuBarItemScanner.systemOverflowFrame() else {
-                return false
+                return Self.isInMenuBarStrip(frame)
             }
             return MenuBarItemScanner.isVisibleBySystemOverflow(
                 frame,
@@ -1618,16 +1810,6 @@ final class StatusBarController {
     }
 
     private func currentImportTargetX(for itemFrame: CGRect) -> CGFloat? {
-        if MenuBarItemScanner.usesAccessibilityBackend {
-            guard let overflowFrame = MenuBarItemScanner.systemOverflowFrame() else {
-                return nil
-            }
-            return Self.systemOverflowImportTargetX(
-                itemFrame: itemFrame,
-                overflowFrame: overflowFrame,
-                displays: Self.activeDisplayBounds()
-            )
-        }
         guard let separatorFrame = separatorItem.button?.window?.frame else {
             return nil
         }

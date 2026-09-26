@@ -25,6 +25,27 @@ struct ScannerTests {
         #expect(StatusBarController.registersLegacySeparator(for: 26))
         #expect(!StatusBarController.registersLegacySeparator(for: 27))
         #expect(!StatusBarController.registersLegacySeparator(for: 28))
+        #expect(!StatusBarController.usesPrivateVisibilityRestriction(for: 26))
+        #expect(StatusBarController.usesPrivateVisibilityRestriction(for: 27))
+        #expect(StatusBarController.usesPrivateVisibilityRestriction(for: 28))
+    }
+
+    @Test("Private visibility allowlist excludes managed apps and preserves FoldBar")
+    func privateVisibilityAllowlist() {
+        let allowed = MenuBarVisibilityRestriction.allowedBundleIdentifiers(
+            runningBundleIdentifiers: [
+                "com.example.visible",
+                "com.example.hidden",
+                "com.example.visible",
+                "",
+            ],
+            hiddenBundleIdentifiers: ["com.example.hidden", "local.foldbar.app"],
+            ownBundleIdentifier: "local.foldbar.app"
+        )
+
+        #expect(allowed == ["com.example.visible", "local.foldbar.app"])
+        #expect(MenuBarVisibilityRestriction.allSystemItems.contains("clock"))
+        #expect(MenuBarVisibilityRestriction.allSystemItems.contains("wifi"))
     }
 
     @Test("Accessibility identities produce stable reserved IDs")

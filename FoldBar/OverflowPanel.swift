@@ -214,6 +214,7 @@ final class OverflowPanel {
         onPromote: @escaping @MainActor (CapturedItem) -> Void,
         onExpand: @escaping @MainActor () -> Void,
         onSettings: @escaping @MainActor () -> Void,
+        shouldDeferDismissalForExternalMouseDown: @escaping @MainActor (NSEvent) -> Bool,
         onDismiss: @escaping @MainActor () -> Void
     ) {
         close()
@@ -288,6 +289,9 @@ final class OverflowPanel {
                 let isCommandClick = event.modifierFlags.contains(.command)
                 MainActor.assumeIsolated {
                     guard let self, let panel = self.panel else { return }
+                    let isImportMouseDown = shouldDeferDismissalForExternalMouseDown(
+                        event
+                    )
                     // Let the status item's mouse-up reach `toggleClicked()`.
                     // Closing here on mouse-down would make that action see a
                     // hidden panel and immediately reopen it.
@@ -295,7 +299,8 @@ final class OverflowPanel {
                         for: NSEvent.mouseLocation,
                         panelFrame: panel.frame,
                         anchorFrame: anchorFrame,
-                        isCommandClick: isCommandClick
+                        isCommandClick: isCommandClick,
+                        isImportMouseDown: isImportMouseDown
                     ) else { return }
                     self.close()
                 }
@@ -357,6 +362,7 @@ final class OverflowPanel {
         dragState?.endExternalDragging()
         externalPreview.close()
     }
+
 }
 
 enum OverflowPanelDismissal {
@@ -364,9 +370,11 @@ enum OverflowPanelDismissal {
         for location: CGPoint,
         panelFrame: CGRect,
         anchorFrame: CGRect,
-        isCommandClick: Bool
+        isCommandClick: Bool,
+        isImportMouseDown: Bool = false
     ) -> Bool {
         !isCommandClick
+            && !isImportMouseDown
             && !panelFrame.contains(location)
             && !anchorFrame.contains(location)
     }
@@ -531,7 +539,7 @@ private struct OverflowPanelView: View {
                 .buttonStyle(.borderless)
                 .help(
                     usesSystemOverflow
-                        ? "关闭 FoldBar 面板；请使用菜单栏的 « 展开系统溢出图标"
+                        ? "关闭 FoldBar 面板；系统 « 与 FoldBar 收纳互不影响"
                         : "展开左侧真实菜单栏图标，并保持展开"
                 )
                 Button("设置", action: onSettings)

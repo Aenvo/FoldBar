@@ -187,6 +187,38 @@ enum MenuBarItemScanner {
         statusWindows().first { $0.id == id }?.frame
     }
 
+    /// Performs the narrow live lookup used by macOS 27 import verification.
+    /// The ordinary refresh remains appropriate for background inventory
+    /// updates, but it scans every running application and is too expensive on
+    /// the direct manipulation path.
+    @MainActor
+    static func refreshStatusWindow(
+        _ item: MenuBarItemWindow
+    ) -> MenuBarItemWindow? {
+        guard usesAccessibilityBackend,
+              let identity = item.accessibilityIdentity,
+              let snapshot = MenuBarAccessibility.refreshSnapshot(
+                  for: identity,
+                  id: item.id,
+                  expectedLabel: item.windowName
+              ) else { return nil }
+        return MenuBarItemWindow(
+            id: snapshot.id,
+            frame: snapshot.frame,
+            ownerName: snapshot.ownerName,
+            windowName: snapshot.label,
+            accessibilityIdentity: snapshot.identity,
+            ownerProcessIdentifier: snapshot.identity.processIdentifier,
+            bundleIdentifier: snapshot.identity.bundleIdentifier
+        )
+    }
+
+    @MainActor
+    static func refreshSystemOverflowFrame() -> CGRect? {
+        guard usesAccessibilityBackend else { return nil }
+        return MenuBarAccessibility.refreshSystemOverflowFrame()
+    }
+
     @MainActor
     static func statusItemFingerprint() -> Set<String> {
         Set(statusWindows().map { "\($0.id)@\(Int($0.frame.minX.rounded()))" })

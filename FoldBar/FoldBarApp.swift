@@ -21,8 +21,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        // A collapsed separator parks other apps' status items off-screen.
-        // Always give the real menu bar back, including on an ordinary quit.
+        // Expand the legacy separator or invalidate the macOS 27 visibility
+        // assertion so an ordinary quit always gives the real menu bar back.
         controller?.expandForQuit()
     }
 }
