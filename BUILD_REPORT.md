@@ -26,6 +26,16 @@ contains in-memory screenshot proxies, not third-party views. The system `«`
 continues to operate independently and is never clicked or expanded by the new
 path.
 
+A follow-up live regression reproduced proxy activation against Clash Verge
+2.5.5 with its main window closed. Replacing the visibility assertion made the
+real glyph appear, but the immediate Accessibility `AXPress` produced no Clash
+Verge window after two seconds. A real primary mouse sequence at the same
+identity-checked frame also failed at 50 ms and opened the expected main window
+at 200 ms. The activation path now waits that bounded settling interval,
+re-resolves the process, bundle, ordinal, label, frame, and visible segment, and
+then sends the marked primary mouse sequence instead of relying on `AXPress`.
+This is application-independent and remains fail-closed before input dispatch.
+
 Final verification used macOS 27.0 (26A428), Xcode 27.0 (27A266a), Swift 6.4,
 and the macOS 27.0 SDK:
 
@@ -36,10 +46,10 @@ and the macOS 27.0 SDK:
 - Code-signature structural verification (`codesign --verify --deep --strict`):
   passed; identifier `local.foldbar.app`, team `42MUMXKY79`.
 - Installed executable SHA-256:
-  `5ff2804f2903db8fe21924e20441867c4700371cfa5043e2e0a9a277824cb8cb`.
-- The exact candidate launched from `/Applications/FoldBar.app` as PID 3850.
-  It loaded the five bundle identifiers already persisted by the user's prior
-  imports and removed all five real glyphs from the rendered menu bar while
+  `82b13327a2bb59026af3fd03cf3b7647f5292b3f0aa85ad080042fcc385e50d4`.
+- The exact candidate launched from `/Applications/FoldBar.app` as PID 5868.
+  It loaded the six bundle identifiers already persisted by the user's prior
+  imports and removed all six real glyphs from the rendered menu bar while
   leaving FoldBar, Wi-Fi, battery, temperature, Control Center, and the clock
   visible.
 
@@ -47,6 +57,12 @@ Live assertion replacement first hid all five managed applications, then
 removed only `com.openai.codex` from the managed set: only the ChatGPT glyph
 returned while the other four stayed hidden. Terminating the diagnostic
 process restored every real glyph, confirming fail-open connection cleanup.
+For the proxy-activation regression, Clash Verge began with zero windows. The
+installed candidate exposed the real item, dispatched the validated click after
+the settling interval, and produced one frontmost standard Clash Verge window
+between the 100 ms and 300 ms observations; it remained present at 700 ms and
+1,500 ms. A post-action accessibility snapshot confirmed the expected Clash
+Verge home panel rather than an unrelated or empty window.
 The direct drag gesture on the newly installed build and the macOS 26 legacy
 regression remain user-acceptance items; the duplicate-rendering failure itself
 is reproduced and corrected by installed-runtime evidence.

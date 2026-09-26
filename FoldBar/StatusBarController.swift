@@ -15,6 +15,7 @@ final class StatusBarController {
     private static let automaticPlacementRetryDelaysMilliseconds = [2_000]
     private static let promotionConfirmationPolls = 3
     private static let activationPresentationPolls = 60
+    private static let privateActivationSettleMilliseconds = 200
     private static let toggleAutosaveName = "foldbar_toggle"
     private static let separatorAutosaveName = "foldbar_separator"
     private static let combinedPermissionRequestKey = "didRequestCombinedPermissionsV1"
@@ -698,6 +699,16 @@ final class StatusBarController {
 
         isCollapsed = false
         updateToggleIcon()
+
+        // MenuBarAgent publishes the revealed AX frame before the hosted item
+        // is ready to receive mouse input. In live testing, a Tauri menu extra
+        // ignored a click at 50 ms but handled the same click at 200 ms. Keep
+        // this bounded settling interval before resolving the final target.
+        guard (try? await Task.sleep(
+            for: .milliseconds(Self.privateActivationSettleMilliseconds)
+        )) != nil,
+        !Task.isCancelled else { return }
+
         var liveItem: MenuBarItemWindow?
         for poll in 0..<20 {
             if poll > 0 {
@@ -715,8 +726,12 @@ final class StatusBarController {
 
         guard let liveItem,
               let identity = liveItem.accessibilityIdentity,
-              MenuBarAccessibility.performPress(
-                  on: identity,
+              let point = Self.activationPoint(
+                  itemFrame: liveItem.frame,
+                  visibleSegments: Self.activeVisibleMenuBarSegments()
+              ),
+              MenuBarAccessibility.matchesCurrentItem(
+                  identity,
                   expectedLabel: liveItem.windowName,
                   expectedFrame: liveItem.frame
               ) else {
@@ -731,6 +746,16 @@ final class StatusBarController {
             )
             return
         }
+
+        // AXPress is not equivalent to a real primary click for every hosted
+        // menu extra. Clash Verge's Tauri status item accepts AXPress without
+        // presenting its window, while the validated mouse sequence follows
+        // the app's normal click handler. Identity and geometry are rechecked
+        // immediately above so the synthetic input remains fail-closed.
+        EventForwarder.click(
+            at: point,
+            eventUserData: MenuBarCommandDragMonitor.syntheticClickEventMarker
+        )
         armAutoCollapse()
     }
 
