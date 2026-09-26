@@ -535,13 +535,11 @@ private struct OverflowPanelView: View {
                 Text("FoldBar")
                     .font(.system(size: 17, weight: .semibold))
                 Spacer()
-                Button(usesSystemOverflow ? "关闭" : "展开", action: onExpand)
-                .buttonStyle(.borderless)
-                .help(
-                    usesSystemOverflow
-                        ? "关闭 FoldBar 面板；系统 « 与 FoldBar 收纳互不影响"
-                        : "展开左侧真实菜单栏图标，并保持展开"
-                )
+                if !usesSystemOverflow {
+                    Button("展开", action: onExpand)
+                        .buttonStyle(.borderless)
+                        .help("展开左侧真实菜单栏图标，并保持展开")
+                }
                 Button("设置", action: onSettings)
                     .buttonStyle(.borderless)
                     .help("设置面板外观和菜单栏拖动方式")

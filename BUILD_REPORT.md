@@ -36,6 +36,12 @@ re-resolves the process, bundle, ordinal, label, frame, and visible segment, and
 then sends the marked primary mouse sequence instead of relying on `AXPress`.
 This is application-independent and remains fail-closed before input dispatch.
 
+The macOS 27 panel header no longer renders the redundant Close action or its
+system-overflow explanation. Installed-app accessibility inspection reports one
+header button, Settings, and the visible panel text contains only the FoldBar
+title and the keep-visible drop-zone copy. The legacy macOS 14–26 Expand action
+remains available because it still exposes the real separator-managed section.
+
 Final verification used macOS 27.0 (26A428), Xcode 27.0 (27A266a), Swift 6.4,
 and the macOS 27.0 SDK:
 
@@ -46,8 +52,8 @@ and the macOS 27.0 SDK:
 - Code-signature structural verification (`codesign --verify --deep --strict`):
   passed; identifier `local.foldbar.app`, team `42MUMXKY79`.
 - Installed executable SHA-256:
-  `82b13327a2bb59026af3fd03cf3b7647f5292b3f0aa85ad080042fcc385e50d4`.
-- The exact candidate launched from `/Applications/FoldBar.app` as PID 5868.
+  `34c5f58eeccf3a12303f814e0bb8f26bea7c9c18396cc91a0b5b59d719f51b6f`.
+- The exact candidate launched from `/Applications/FoldBar.app` as PID 6757.
   It loaded the six bundle identifiers already persisted by the user's prior
   imports and removed all six real glyphs from the rendered menu bar while
   leaving FoldBar, Wi-Fi, battery, temperature, Control Center, and the clock
