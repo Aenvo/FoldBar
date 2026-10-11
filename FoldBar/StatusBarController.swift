@@ -50,6 +50,10 @@ final class StatusBarController {
     private var importPreviewImages: [CGWindowID: NSImage] = [:]
     private var importPreviewRequestedIDs: Set<CGWindowID> = []
     private var cachedItems: [CapturedItem] = []
+    private var cachedPrivateBundleIdentifiers: Set<String> {
+        Set(cachedItems.map { $0.window.bundleIdentifier })
+            .intersection(managedBundleIdentifiers)
+    }
     private var knownManagedWindowIDs: Set<CGWindowID> = []
     private var managedBundleIdentifiers = ManagedMenuBarBundles.load()
     private var isImportTargetingToggle = false
@@ -277,8 +281,6 @@ final class StatusBarController {
                 managedBundleIdentifiers.contains($0.bundleIdentifier)
             }
         )
-        let knownIDs = Set(windows.map(\.id))
-
         guard managedBundleIdentifiers.isEmpty || IconCapturer.hasPermission() else {
             cachedItems = []
             isCollapsed = false
@@ -294,9 +296,7 @@ final class StatusBarController {
                 let existing = self.cachedItems.first { cached in
                     if let liveIdentity = window.accessibilityIdentity,
                        let cachedIdentity = cached.window.accessibilityIdentity {
-                        return liveIdentity.bundleIdentifier
-                            == cachedIdentity.bundleIdentifier
-                            && liveIdentity.ordinal == cachedIdentity.ordinal
+                        return liveIdentity == cachedIdentity
                     }
                     return cached.window.bundleIdentifier == window.bundleIdentifier
                 }
@@ -310,15 +310,34 @@ final class StatusBarController {
             }
             let reusableIDs = Set(reusable.map(\.id))
             let missing = windows.filter { !reusableIDs.contains($0.id) }
-            let newlyCaptured = missing.isEmpty
-                ? []
-                : await IconCapturer.capture(missing)
+            var newlyCaptured: [CapturedItem] = []
+            var uncaptured = missing
+            for attempt in 0..<3 where !uncaptured.isEmpty {
+                if attempt > 0 {
+                    guard (try? await Task.sleep(for: .milliseconds(250))) != nil,
+                          !Task.isCancelled else { return }
+                }
+                let capturable = Self.capturablePrivateItems(uncaptured)
+                guard !capturable.isEmpty else { break }
+                let captured = await IconCapturer.capture(capturable)
+                newlyCaptured.append(contentsOf: captured)
+                let capturedIDs = Set(captured.map(\.id))
+                uncaptured.removeAll { capturedIDs.contains($0.id) }
+            }
             guard !Task.isCancelled, !self.isCollapsed else { return }
+            // The assertion is application-granular. Only hide a bundle when
+            // every observed menu extra from that bundle has real pixels.
+            let captured = reusable + newlyCaptured
+            let completeBundles = Self.completeCapturedBundles(
+                among: windows,
+                captured: captured
+            )
             let applied = await self.visibilityRestriction.apply(
-                hiddenBundleIdentifiers: self.managedBundleIdentifiers
+                hiddenBundleIdentifiers: completeBundles
             )
             guard !Task.isCancelled else { return }
             guard applied else {
+                self.visibilityRestriction.releaseActiveRestriction()
                 self.preparingCollapse = false
                 self.cacheCaptureTask = nil
                 self.isCollapsed = false
@@ -326,12 +345,18 @@ final class StatusBarController {
                 return
             }
             let byID = Dictionary(
-                uniqueKeysWithValues: (reusable + newlyCaptured).map {
+                uniqueKeysWithValues: captured.map {
                     ($0.id, $0)
                 }
             )
-            self.cachedItems = windows.compactMap { byID[$0.id] }
-            self.completeCollapse(knownManagedWindowIDs: knownIDs)
+            self.cachedItems = windows.compactMap { window in
+                completeBundles.contains(window.bundleIdentifier)
+                    ? byID[window.id]
+                    : nil
+            }
+            self.completeCollapse(
+                knownManagedWindowIDs: Set(self.cachedItems.map(\.id))
+            )
         }
     }
 
@@ -523,11 +548,16 @@ final class StatusBarController {
                       self.promotionTask == nil,
                       self.automaticPlacementTask == nil else { continue }
 
-                await MenuBarItemScanner.refreshStatusWindows()
                 if MenuBarItemScanner.usesAccessibilityBackend {
-                    self.refreshPrivateManagedIdentities()
+                    // The macOS 27 assertion is an application allowlist, not
+                    // only a denylist. Reconcile it while collapsed so a newly
+                    // launched, un-managed status item is admitted instead of
+                    // being parked outside both the real menu bar and FoldBar.
+                    await MenuBarItemScanner.refreshStatusWindows(force: true)
+                    await self.reconcilePrivateManagedImages()
                     continue
                 }
+                await MenuBarItemScanner.refreshStatusWindows()
                 let hidden = self.currentHiddenItems()
                 let currentIDs = Set(hidden.map(\.id))
                 self.knownManagedWindowIDs.formIntersection(currentIDs)
@@ -548,24 +578,19 @@ final class StatusBarController {
         collapsedItemMonitorTask = nil
     }
 
-    private func refreshPrivateManagedIdentities() {
+    private func reconcilePrivateManagedImages() async {
         let liveItems = MenuBarItemScanner.statusWindows().filter {
             managedBundleIdentifiers.contains($0.bundleIdentifier)
         }
-        guard !liveItems.isEmpty else { return }
-
         let existingByIdentity = Dictionary(
             uniqueKeysWithValues: cachedItems.compactMap { item in
                 item.window.accessibilityIdentity.map { ($0, item) }
             }
         )
-        cachedItems = MenuBarItemScanner.panelDisplayOrder(liveItems).compactMap {
-            window in
+        let reusable: [CapturedItem] = MenuBarItemScanner
+            .panelDisplayOrder(liveItems).compactMap { window -> CapturedItem? in
             guard let identity = window.accessibilityIdentity,
-                  let existing = existingByIdentity[identity]
-                    ?? cachedItems.first(where: {
-                        $0.window.bundleIdentifier == window.bundleIdentifier
-                    }) else { return nil }
+                  let existing = existingByIdentity[identity] else { return nil }
             return CapturedItem(
                 window: window,
                 image: existing.image,
@@ -573,7 +598,70 @@ final class StatusBarController {
                 ownerProcessIdentifier: window.ownerProcessIdentifier
             )
         }
-        knownManagedWindowIDs = Set(liveItems.map(\.id))
+        let reusableIDs = Set(reusable.map(\.id))
+        let missing = liveItems.filter { !reusableIDs.contains($0.id) }
+        let newlyCaptured = await IconCapturer.capture(
+            Self.capturablePrivateItems(missing)
+        )
+        guard !Task.isCancelled, isCollapsed else { return }
+        let candidate: [CapturedItem] = reusable + newlyCaptured
+        let completeBundles = Self.completeCapturedBundles(
+            among: liveItems,
+            captured: candidate
+        )
+        guard await visibilityRestriction.apply(
+            hiddenBundleIdentifiers: completeBundles
+        ), !Task.isCancelled else { return }
+        cachedItems = MenuBarItemScanner.panelDisplayOrder(candidate.map(\.window))
+            .compactMap { window in
+                completeBundles.contains(window.bundleIdentifier)
+                    ? candidate.first(where: { $0.id == window.id })
+                    : nil
+            }
+        knownManagedWindowIDs = Set(cachedItems.map(\.id))
+    }
+
+    nonisolated static func completeCapturedBundles(
+        among liveItems: [MenuBarItemWindow],
+        captured: [CapturedItem]
+    ) -> Set<String> {
+        let capturedIdentities = Set(captured.compactMap {
+            $0.window.accessibilityIdentity
+        })
+        let groups = Dictionary(grouping: liveItems, by: \.bundleIdentifier)
+        return Set(groups.compactMap { bundleIdentifier, items in
+            guard !bundleIdentifier.isEmpty,
+                  items.allSatisfy({ item in
+                      item.accessibilityIdentity.map(capturedIdentities.contains)
+                          ?? false
+                  }) else { return nil }
+            return bundleIdentifier
+        })
+    }
+
+    private static func capturablePrivateItems(
+        _ items: [MenuBarItemWindow]
+    ) -> [MenuBarItemWindow] {
+        let segments = activeVisibleMenuBarSegments()
+        let overflowFrame = MenuBarItemScanner.systemOverflowFrame()
+        return items.filter {
+            // The system control is only an occlusion check for screenshot
+            // pixels; it never defines FoldBar's managed membership.
+            isSafePrivateCaptureFrame(
+                $0.frame,
+                visibleSegments: segments,
+                overflowFrame: overflowFrame
+            )
+        }
+    }
+
+    static func isSafePrivateCaptureFrame(
+        _ frame: CGRect,
+        visibleSegments: [CGRect],
+        overflowFrame: CGRect?
+    ) -> Bool {
+        isInVisibleMenuBarSegment(frame, segments: visibleSegments)
+            && !(overflowFrame.map { frame.intersects($0) } ?? false)
     }
 
     private func beginAutomaticPlacement(of items: [MenuBarItemWindow]) {
@@ -682,7 +770,8 @@ final class StatusBarController {
         guard !bundleIdentifier.isEmpty,
               managedBundleIdentifiers.contains(bundleIdentifier) else { return }
 
-        let temporarilyHidden = managedBundleIdentifiers.subtracting([
+        let previouslyHidden = cachedPrivateBundleIdentifiers
+        let temporarilyHidden = previouslyHidden.subtracting([
             bundleIdentifier
         ])
         guard await visibilityRestriction.apply(
@@ -734,7 +823,7 @@ final class StatusBarController {
                   expectedFrame: liveItem.frame
               ) else {
             _ = await visibilityRestriction.apply(
-                hiddenBundleIdentifiers: managedBundleIdentifiers
+                hiddenBundleIdentifiers: previouslyHidden
             )
             isCollapsed = true
             updateToggleIcon()
@@ -868,7 +957,8 @@ final class StatusBarController {
                 bundleIdentifier
             ])
             if await self.visibilityRestriction.apply(
-                hiddenBundleIdentifiers: updated
+                hiddenBundleIdentifiers: self.cachedPrivateBundleIdentifiers
+                    .subtracting([bundleIdentifier])
             ) {
                 self.managedBundleIdentifiers = updated
                 ManagedMenuBarBundles.save(updated)
@@ -1070,7 +1160,13 @@ final class StatusBarController {
             candidates: candidates,
             panelTargetFrame: panelTargetFrame,
             toggleTargetFrame: toggleTargetFrame
-        ) else { return }
+        ) else {
+            Self.importLogger.error("menu-bar import monitor could not start")
+            return
+        }
+        Self.importLogger.notice(
+            "menu-bar import armed candidates=\(candidates.count, privacy: .public) cachedBundles=\(self.cachedPrivateBundleIdentifiers.count, privacy: .public) persistedBundles=\(self.managedBundleIdentifiers.count, privacy: .public)"
+        )
         prefetchImportPreviewImages(for: candidates)
 
         importCandidateRefreshTask = Task { @MainActor [weak self] in
@@ -1106,7 +1202,11 @@ final class StatusBarController {
         importPreviewRequestedIDs.formUnion(missing.map(\.id))
 
         importPreviewPrefetchTask = Task { @MainActor [weak self] in
-            let images = await IconCapturer.captureImages(missing)
+            let images = await IconCapturer.captureImages(
+                missing,
+                includeFallback: !MenuBarItemScanner.usesAccessibilityBackend,
+                diagnostics: true
+            )
             guard let self, !Task.isCancelled, self.panel.isVisible else { return }
             self.importPreviewImages.merge(images) { _, fresh in fresh }
             self.importPreviewPrefetchTask = nil
@@ -1124,23 +1224,15 @@ final class StatusBarController {
 
         let candidates: [MenuBarItemWindow]
         if MenuBarItemScanner.usesAccessibilityBackend {
-            // The system `«` may still hide unrelated items when the strip is
-            // crowded, but it is not FoldBar's storage boundary. Only accept
-            // real, currently visible items that are not in FoldBar's set.
-            let systemOverflowFrame = MenuBarItemScanner.systemOverflowFrame()
-            candidates = MenuBarItemScanner.statusWindows().filter { window in
-                !managedBundleIdentifiers.contains(window.bundleIdentifier)
-                    && Self.isInVisibleMenuBarSegment(
-                        window.frame,
-                        segments: Self.activeVisibleMenuBarSegments()
-                    )
-                    && (systemOverflowFrame.map { overflowFrame in
-                        MenuBarItemScanner.isVisibleBySystemOverflow(
-                            window.frame,
-                            overflowFrame: overflowFrame
-                        )
-                    } ?? true)
-            }
+            // Failed captures leave persisted bundles visible. They must remain
+            // importable: only bundles represented by the active panel cache
+            // are already hidden by FoldBar.
+            candidates = Self.privateImportCandidates(
+                among: MenuBarItemScanner.statusWindows(),
+                hiddenBundleIdentifiers: cachedPrivateBundleIdentifiers,
+                visibleSegments: Self.activeVisibleMenuBarSegments(),
+                overflowFrame: MenuBarItemScanner.systemOverflowFrame()
+            )
         } else {
             guard let separatorFrame = separatorItem.button?.window?.frame else {
                 return []
@@ -1156,6 +1248,22 @@ final class StatusBarController {
                 && !Self.matchesOwnStatusItem(window.frame, ownFrames: ownWindowFrames)
                 && window.frame.width < 500
                 && Self.isInMenuBarStrip(window.frame)
+        }
+    }
+
+    static func privateImportCandidates(
+        among windows: [MenuBarItemWindow],
+        hiddenBundleIdentifiers: Set<String>,
+        visibleSegments: [CGRect],
+        overflowFrame: CGRect?
+    ) -> [MenuBarItemWindow] {
+        windows.filter { window in
+            !hiddenBundleIdentifiers.contains(window.bundleIdentifier)
+                && isSafePrivateCaptureFrame(
+                    window.frame,
+                    visibleSegments: visibleSegments,
+                    overflowFrame: overflowFrame
+                )
         }
     }
 
@@ -1187,21 +1295,34 @@ final class StatusBarController {
     }
 
     private func beginExternalDrag(_ item: MenuBarItemWindow, at point: CGPoint) {
+        Self.importLogger.notice("external drag began item=\(item.id, privacy: .public)")
         externalDragItemID = item.id
         setImportTargetingToggle(false)
         panel.beginExternalDrag(
             image: importPreviewImages[item.id],
+            sourceFrame: item.frame,
             atQuartzPoint: point
+        )
+        Self.importLogger.notice(
+            "external drag preview ready=\(self.importPreviewImages[item.id] != nil, privacy: .public)"
         )
         externalDragCaptureTask?.cancel()
         externalDragCaptureTask = Task { @MainActor [weak self] in
-            let captured = await IconCapturer.captureImages([item])
+            let captured = await IconCapturer.captureImages(
+                [item],
+                includeFallback: !MenuBarItemScanner.usesAccessibilityBackend,
+                diagnostics: true
+            )
             guard let self,
                   !Task.isCancelled,
-                  self.externalDragItemID == item.id,
-                  let image = captured[item.id] else { return }
+                  self.externalDragItemID == item.id else { return }
+            guard let image = captured[item.id] else {
+                Self.importLogger.notice("external drag screenshot unavailable")
+                return
+            }
             self.importPreviewImages[item.id] = image
             self.panel.updateExternalDragImage(image)
+            Self.importLogger.notice("external drag screenshot ready")
         }
     }
 
@@ -1267,6 +1388,9 @@ final class StatusBarController {
         target: MenuBarImportDropTarget?
     ) {
         guard externalDragItemID == item.id else { return }
+        Self.importLogger.notice(
+            "external drag ended item=\(item.id, privacy: .public) acceptedTarget=\(target != nil, privacy: .public)"
+        )
         externalDragCaptureTask?.cancel()
         externalDragCaptureTask = nil
         externalDragItemID = nil
@@ -1408,6 +1532,7 @@ final class StatusBarController {
             let liveItems = MenuBarItemScanner.panelDisplayOrder(sameBundleItems)
             guard refreshedDraggedItem != nil,
                   !liveItems.isEmpty,
+                  Self.capturablePrivateItems(liveItems).count == liveItems.count,
                   liveItems.contains(where: {
                       $0.accessibilityIdentity == item.accessibilityIdentity
                           || $0.windowName == item.windowName
@@ -1443,11 +1568,20 @@ final class StatusBarController {
                 }
             }
 
+            guard captured.count == liveItems.count else {
+                self.showAlert(
+                    title: "无法读取真实图标",
+                    message: "FoldBar 没有取得这个应用全部菜单栏图标的截图，因此没有收纳它。请保持图标可见后重试。"
+                )
+                return
+            }
+
             let updated = self.managedBundleIdentifiers.union([
                 bundleIdentifier
             ])
             guard await self.visibilityRestriction.apply(
-                hiddenBundleIdentifiers: updated
+                hiddenBundleIdentifiers: self.cachedPrivateBundleIdentifiers
+                    .union([bundleIdentifier])
             ) else {
                 self.showAlert(
                     title: "图标没有收纳成功",

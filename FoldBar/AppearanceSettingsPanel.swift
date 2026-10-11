@@ -64,7 +64,7 @@ private struct AppearanceSettingsView: View {
 
                 Text(
                     directMenuBarDragEnabled
-                        ? "打开 FoldBar 面板后，直接把可见菜单栏图标拖到面板或箭头即可收纳；普通单击仍会打开原图标。"
+                        ? "打开 FoldBar 面板后，按下可见菜单栏图标时先不触发点击，移动后可拖到面板或箭头收纳；原地单击会在松手后打开原图标。"
                         : "关闭时保持 macOS 原有方式：打开 FoldBar 面板后，按住 Command 再拖动菜单栏图标。"
                 )
                 .font(.callout)

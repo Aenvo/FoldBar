@@ -18,16 +18,12 @@ private extension PanelAppearance {
     }
 }
 
-/// Shared by the system drag preview and the proxy that follows a drag from a
-/// real menu-bar item. Keeping one SwiftUI surface prevents their tint, border,
-/// corner radius, icon sizing, and appearance fallback from drifting apart.
-private struct IconDragPreviewSurface: View {
+/// The panel cell and both drag previews render the same surface. Dragging
+/// changes only its position, preserving the artwork's scale and cell style.
+private struct OverflowIconCellSurface: View {
     let image: NSImage
     let width: CGFloat
     let appearance: PanelAppearance
-
-    private let height: CGFloat = 46
-    private let iconMaxHeight: CGFloat = 28
 
     private var renderedAppearance: PanelAppearance {
         appearance.renderedForCurrentOS
@@ -45,8 +41,12 @@ private struct IconDragPreviewSurface: View {
     }
 
     var body: some View {
-        ZStack {
-            let shape = RoundedRectangle(cornerRadius: 9)
+        let iconSize = OverflowIconCellLayout.iconSize(
+            for: image.size,
+            cellWidth: width
+        )
+        return ZStack {
+            let shape = RoundedRectangle(cornerRadius: OverflowIconCellLayout.cornerRadius)
             if renderedAppearance == .liquidGlass {
                 shape
                     .fill(.thinMaterial)
@@ -55,20 +55,14 @@ private struct IconDragPreviewSurface: View {
             } else {
                 shape.fill(cellFill)
             }
-            shape
-                .fill(Color.blue.opacity(0.22))
-                .overlay {
-                    shape.strokeBorder(Color.blue.opacity(0.65), lineWidth: 1)
-                }
             Image(nsImage: image)
                 .renderingMode(image.isTemplate ? .template : .original)
                 .resizable()
                 .interpolation(.high)
-                .scaledToFit()
-                .frame(maxWidth: width - 12, maxHeight: iconMaxHeight)
+                .frame(width: iconSize.width, height: iconSize.height)
                 .foregroundStyle(.primary)
         }
-        .frame(width: width, height: height)
+        .frame(width: width, height: OverflowIconCellLayout.cellSize)
         .preferredColorScheme(
             renderedAppearance == .dark || renderedAppearance == .liquidGlass
                 ? .dark
@@ -78,29 +72,51 @@ private struct IconDragPreviewSurface: View {
 }
 
 @MainActor
-private final class ExternalDragPreviewPanel {
+final class ExternalDragPreviewPanel {
     private var panel: NSPanel?
     private var lastPoint = CGPoint.zero
+    private var isDragging = false
+    private var sourceFrame: CGRect?
+    private var appearance = PanelAppearance.currentMaterial
 
-    func show(image: NSImage, atQuartzPoint point: CGPoint) {
+    var frame: CGRect? { panel?.frame }
+    var isVisible: Bool { panel?.isVisible ?? false }
+
+    func show(
+        image: NSImage?,
+        sourceFrame: CGRect? = nil,
+        appearance: PanelAppearance? = nil,
+        atQuartzPoint point: CGPoint
+    ) {
         close()
+        isDragging = true
         lastPoint = point
+        self.sourceFrame = sourceFrame
+        self.appearance = appearance ?? PanelAppearance.decode(
+            UserDefaults.standard.string(forKey: PanelAppearance.defaultsKey)
+        )
+        guard let image else { return }
+        render(image: image)
+    }
 
-        let ratio = max(0.8, min(3, image.size.width / max(1, image.size.height)))
-        let size = NSSize(width: max(46, min(96, 14 + 28 * ratio)), height: 46)
+    private func render(image: NSImage) {
+        panel?.orderOut(nil)
+        let frame = sourceFrame ?? CGRect(origin: .zero, size: image.size)
+        let span = OverflowGridLayout.columnSpan(for: frame)
+        let size = NSSize(
+            width: OverflowIconCellLayout.width(forSpan: span),
+            height: OverflowIconCellLayout.cellSize
+        )
         let panel = NSPanel(
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
-        let storedAppearance = UserDefaults.standard.string(
-            forKey: PanelAppearance.defaultsKey
-        )
-        let content = IconDragPreviewSurface(
+        let content = OverflowIconCellSurface(
             image: image,
             width: size.width,
-            appearance: PanelAppearance.decode(storedAppearance)
+            appearance: appearance
         )
         let hosting = NSHostingView(rootView: content)
         hosting.frame = NSRect(origin: .zero, size: size)
@@ -108,17 +124,20 @@ private final class ExternalDragPreviewPanel {
         panel.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
+        // This translucent card already matches the grid cell. A separate
+        // WindowServer shadow makes its rounded edge look like a black border.
+        panel.hasShadow = false
         panel.ignoresMouseEvents = true
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
         panel.isReleasedWhenClosed = false
         self.panel = panel
-        move(toQuartzPoint: point)
+        move(toQuartzPoint: lastPoint)
         panel.orderFrontRegardless()
     }
 
     func update(image: NSImage) {
-        show(image: image, atQuartzPoint: lastPoint)
+        guard isDragging else { return }
+        render(image: image)
     }
 
     func move(toQuartzPoint point: CGPoint) {
@@ -144,8 +163,10 @@ private final class ExternalDragPreviewPanel {
     }
 
     func close() {
+        isDragging = false
         panel?.orderOut(nil)
         panel = nil
+        sourceFrame = nil
     }
 }
 
@@ -332,13 +353,23 @@ final class OverflowPanel {
         callback?()
     }
 
-    func beginExternalDrag(image: NSImage?, atQuartzPoint point: CGPoint) {
+    func beginExternalDrag(
+        image: NSImage?,
+        sourceFrame: CGRect? = nil,
+        atQuartzPoint point: CGPoint
+    ) {
         guard isVisible else { return }
         dragState?.beginExternalDragging()
-        externalPreview.move(toQuartzPoint: point)
-        if let image {
-            externalPreview.show(image: image, atQuartzPoint: point)
-        }
+        // Preserve the active point even if a cold screenshot arrives later.
+        // Render only real artwork in the shared preview surface.
+        externalPreview.show(
+            image: image,
+            sourceFrame: sourceFrame,
+            appearance: PanelAppearance.decode(
+                UserDefaults.standard.string(forKey: PanelAppearance.defaultsKey)
+            ),
+            atQuartzPoint: point
+        )
     }
 
     func updateExternalDrag(atQuartzPoint point: CGPoint, isInsidePanel: Bool) {
@@ -438,6 +469,26 @@ enum OverflowIconLayout {
     }
 }
 
+/// Shared dimensions for panel cells and drag previews. The span is resolved
+/// from the status item's original frame, rather than the cropped artwork.
+enum OverflowIconCellLayout {
+    static let cellSize: CGFloat = 46
+    static let cellSpacing: CGFloat = 8
+    static let cornerRadius: CGFloat = 9
+
+    static func width(forSpan span: Int) -> CGFloat {
+        let span = min(3, max(1, span))
+        return cellSize * CGFloat(span) + cellSpacing * CGFloat(span - 1)
+    }
+
+    static func iconSize(for imageSize: CGSize, cellWidth: CGFloat) -> CGSize {
+        OverflowIconLayout.displaySize(
+            sourceSize: imageSize,
+            availableWidth: cellWidth - 6
+        )
+    }
+}
+
 private struct OverflowPanelView: View {
     let items: [CapturedItem]
     @ObservedObject var dragState: OverflowDragState
@@ -448,8 +499,8 @@ private struct OverflowPanelView: View {
     @State private var isPromoteTargeted = false
     @AppStorage(PanelAppearance.defaultsKey)
     private var storedAppearance = PanelAppearance.currentMaterial.rawValue
-    private let cellSize: CGFloat = 46
-    private let cellSpacing: CGFloat = 8
+    private let cellSize = OverflowIconCellLayout.cellSize
+    private let cellSpacing = OverflowIconCellLayout.cellSpacing
     private let panelPadding: CGFloat = 16
     private let panelChromeHeight: CGFloat = 102
 
@@ -482,17 +533,6 @@ private struct OverflowPanelView: View {
 
     private var usesDarkForeground: Bool {
         renderedAppearance == .dark || renderedAppearance == .liquidGlass
-    }
-
-    private var iconCellFill: Color {
-        switch renderedAppearance {
-        case .currentMaterial:
-            Color.black.opacity(0.16)
-        case .dark:
-            Color.white.opacity(0.07)
-        case .liquidGlass:
-            Color.black.opacity(0.22)
-        }
     }
 
     private var passiveDropZoneFill: Color {
@@ -643,7 +683,7 @@ private struct OverflowPanelView: View {
 
     private func iconCell(_ entry: OverflowGridCell) -> some View {
         let item = entry.item
-        let width = cellSize * CGFloat(entry.span) + cellSpacing * CGFloat(entry.span - 1)
+        let width = OverflowIconCellLayout.width(forSpan: entry.span)
         return Button {
             onClick(item)
         } label: {
@@ -656,47 +696,19 @@ private struct OverflowPanelView: View {
             dragState.beginDragging()
             return NSItemProvider(object: String(item.id) as NSString)
         } preview: {
-            iconCellSurface(item, width: width, isDragging: true)
+            iconCellSurface(item, width: width)
         }
     }
 
     private func iconCellSurface(
         _ item: CapturedItem,
-        width: CGFloat,
-        isDragging: Bool = false
+        width: CGFloat
     ) -> some View {
-        let iconSize = OverflowIconLayout.displaySize(
-            sourceSize: item.image.size,
-            availableWidth: width - 6
+        OverflowIconCellSurface(
+            image: item.image,
+            width: width,
+            appearance: appearance
         )
-        return Group {
-            if isDragging {
-                IconDragPreviewSurface(
-                    image: item.image,
-                    width: width,
-                    appearance: appearance
-                )
-            } else {
-                ZStack {
-                    let shape = RoundedRectangle(cornerRadius: 9)
-                    if renderedAppearance == .liquidGlass {
-                        shape
-                            .fill(.thinMaterial)
-                            .opacity(0.56)
-                            .overlay { shape.fill(Color.black.opacity(0.12)) }
-                    } else {
-                        shape.fill(iconCellFill)
-                    }
-                    Image(nsImage: item.image)
-                        .renderingMode(item.image.isTemplate ? .template : .original)
-                        .resizable()
-                        .interpolation(.high)
-                        .frame(width: iconSize.width, height: iconSize.height)
-                        .foregroundStyle(.primary)
-                }
-                .frame(width: width, height: cellSize)
-            }
-        }
     }
 
     @ViewBuilder

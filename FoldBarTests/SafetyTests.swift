@@ -9,6 +9,84 @@ struct SafetyTests {
     static let main = CGRect(x: 0, y: 0, width: 1710, height: 1107)
     static let left = CGRect(x: -1920, y: 0, width: 1920, height: 1080)
 
+    @Test("A real-image drag preview follows pointer updates")
+    func externalPreviewWithoutScreenshot() throws {
+        let preview = ExternalDragPreviewPanel()
+        defer { preview.close() }
+        preview.show(image: NSImage(size: NSSize(width: 24, height: 24)), atQuartzPoint: CGPoint(x: 300, y: 150))
+        let initialFrame = try #require(preview.frame)
+        #expect(preview.isVisible)
+
+        preview.move(toQuartzPoint: CGPoint(x: 400, y: 250))
+        let movedFrame = try #require(preview.frame)
+        #expect(movedFrame.minX == initialFrame.minX + 100)
+        #expect(movedFrame.minY == initialFrame.minY - 100)
+    }
+
+    @Test("A late screenshot stays at the latest drag point")
+    func externalPreviewLateScreenshot() throws {
+        let preview = ExternalDragPreviewPanel()
+        defer { preview.close() }
+        preview.show(image: nil, atQuartzPoint: CGPoint(x: 300, y: 150))
+        #expect(!preview.isVisible)
+        preview.move(toQuartzPoint: CGPoint(x: 400, y: 250))
+
+        preview.update(image: NSImage(size: NSSize(width: 24, height: 24)))
+        let movedFrame = try #require(preview.frame)
+        let appKitPoint = MenuBarCommandDragMonitor.appKitPoint(
+            fromQuartz: CGPoint(x: 400, y: 250),
+            mainDisplayBounds: CGDisplayBounds(CGMainDisplayID())
+        )
+        #expect(movedFrame.minX == appKitPoint.x + 12)
+        #expect(movedFrame.minY == appKitPoint.y - movedFrame.height - 12)
+        #expect(preview.isVisible)
+    }
+
+    @Test("A late screenshot cannot reopen a cancelled drag preview")
+    func externalPreviewCancellation() {
+        let preview = ExternalDragPreviewPanel()
+        preview.show(image: nil, atQuartzPoint: CGPoint(x: 300, y: 150))
+        preview.close()
+        preview.update(image: NSImage(size: NSSize(width: 24, height: 24)))
+
+        #expect(preview.frame == nil)
+        #expect(!preview.isVisible)
+    }
+
+    @Test("Display capture converts only full menu-bar rectangles to display-local coordinates")
+    func displayCaptureCoordinates() {
+        #expect(IconCapturer.displaySourceRect(
+            for: CGRect(x: -1800, y: 5, width: 24, height: 24),
+            displayBounds: Self.left
+        ) == CGRect(x: 120, y: 5, width: 24, height: 24))
+        #expect(IconCapturer.displaySourceRect(
+            for: CGRect(x: 100, y: -1075, width: 24, height: 24),
+            displayBounds: CGRect(x: 0, y: -1080, width: 1920, height: 1080)
+        ) == CGRect(x: 100, y: 5, width: 24, height: 24))
+        #expect(IconCapturer.displaySourceRect(
+            for: CGRect(x: 100, y: 100, width: 24, height: 24),
+            displayBounds: Self.main
+        ) == nil)
+        #expect(IconCapturer.displaySourceRect(
+            for: CGRect(x: -10, y: 5, width: 24, height: 24),
+            displayBounds: Self.main
+        ) == nil)
+    }
+
+    @Test("Capture padding stays in the menu strip and clear of neighbouring items")
+    func capturePadding() {
+        let frame = CGRect(x: -500, y: 5, width: 24, height: 24)
+        #expect(IconCapturer.paddedItemCaptureFrame(frame, displays: [Self.left], neighbours: [])
+            == CGRect(x: -503, y: 2, width: 30, height: 30))
+        #expect(IconCapturer.paddedItemCaptureFrame(frame, displays: [Self.left], neighbours: [
+            CGRect(x: -475, y: 5, width: 24, height: 24)
+        ]) == frame)
+        let edge = CGRect(x: -1920, y: 5, width: 24, height: 24)
+        #expect(IconCapturer.paddedItemCaptureFrame(edge, displays: [Self.left], neighbours: []) == edge)
+        let top = CGRect(x: -500, y: 0, width: 24, height: 24)
+        #expect(IconCapturer.paddedItemCaptureFrame(top, displays: [Self.left], neighbours: []) == top)
+    }
+
     @Test("A normal status item inside the strip is accepted")
     func normalItem() {
         let item = CGRect(x: 1300, y: 0, width: 24, height: 24)
@@ -62,6 +140,27 @@ struct SafetyTests {
         #expect(!StatusBarController.isInVisibleMenuBarSegment(
             CGRect(x: 929, y: 0, width: 38, height: 24),
             segments: [upperDisplay]
+        ))
+    }
+
+    @Test("Private capture rejects native-overflow pixels and virtual frames")
+    func privateCaptureRequiresUnoccludedFrame() {
+        let segment = CGRect(x: 948, y: 0, width: 762, height: 40)
+        let systemControl = CGRect(x: 960, y: 5, width: 24, height: 24)
+        #expect(!StatusBarController.isSafePrivateCaptureFrame(
+            CGRect(x: 963, y: 5, width: 24, height: 24),
+            visibleSegments: [segment],
+            overflowFrame: systemControl
+        ))
+        #expect(!StatusBarController.isSafePrivateCaptureFrame(
+            CGRect(x: 7, y: 1095, width: 24, height: 24),
+            visibleSegments: [segment],
+            overflowFrame: systemControl
+        ))
+        #expect(StatusBarController.isSafePrivateCaptureFrame(
+            CGRect(x: 1000, y: 5, width: 24, height: 24),
+            visibleSegments: [segment],
+            overflowFrame: systemControl
         ))
     }
 
@@ -602,6 +701,222 @@ struct OverflowGridTests {
             sourceSize: CGSize(width: 512, height: 256),
             availableWidth: 40
         ) == CGSize(width: 40, height: 20))
+    }
+
+    @Test("Colour menu-bar screenshots keep their original colour")
+    @MainActor
+    func colourMenuBarCapture() throws {
+        let context = try #require(CGContext(
+            data: nil,
+            width: 20,
+            height: 20,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        context.setFillColor(NSColor(white: 0.15, alpha: 1).cgColor)
+        context.fill(CGRect(x: 0, y: 0, width: 20, height: 20))
+        context.setFillColor(NSColor(calibratedRed: 0.9, green: 0.1, blue: 0.1, alpha: 1).cgColor)
+        context.fill(CGRect(x: 5, y: 5, width: 10, height: 10))
+
+        let source = try #require(context.makeImage())
+        let image = try #require(IconCapturer.menuBarImage(
+            from: source,
+            logicalSize: CGSize(width: 20, height: 20)
+        ))
+        #expect(!image.isTemplate)
+        let output = try #require(image.cgImage(
+            forProposedRect: nil,
+            context: nil,
+            hints: nil
+        ))
+        let colour = try #require(NSBitmapImageRep(cgImage: output).colorAt(
+            x: output.width / 2,
+            y: output.height / 2
+        ))
+        #expect(colour.redComponent > colour.greenComponent + 0.4)
+    }
+
+    @Test("Neutral menu-bar screenshots remain adaptive templates")
+    @MainActor
+    func neutralMenuBarCapture() throws {
+        let context = try #require(CGContext(
+            data: nil,
+            width: 20,
+            height: 20,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        context.setFillColor(NSColor(white: 0.15, alpha: 1).cgColor)
+        context.fill(CGRect(x: 0, y: 0, width: 20, height: 20))
+        context.setFillColor(NSColor(white: 0.9, alpha: 1).cgColor)
+        context.fill(CGRect(x: 5, y: 5, width: 10, height: 10))
+
+        let source = try #require(context.makeImage())
+        let image = try #require(IconCapturer.menuBarImage(
+            from: source,
+            logicalSize: CGSize(width: 20, height: 20)
+        ))
+        #expect(image.isTemplate)
+    }
+
+    @Test("A wallpaper gradient does not replace real artwork with a clipped-frame failure")
+    @MainActor
+    func menuBarCaptureWithGradient() throws {
+        let width = 48
+        let height = 48
+        let context = try #require(CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8,
+            bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        let data = try #require(context.data).bindMemory(to: UInt8.self, capacity: width * height * 4)
+        for y in 0..<height {
+            for x in 0..<width {
+                let offset = (y * width + x) * 4
+                data[offset] = UInt8(20 + 3 * x)
+                data[offset + 1] = UInt8(20 + 2 * y)
+                data[offset + 2] = UInt8(180 - 2 * x)
+                data[offset + 3] = 255
+            }
+        }
+        context.setFillColor(NSColor(white: 0.95, alpha: 1).cgColor)
+        context.fill(CGRect(x: 14, y: 10, width: 20, height: 28))
+        let source = try #require(context.makeImage())
+        let image = try #require(IconCapturer.menuBarImage(
+            from: source,
+            logicalSize: CGSize(width: 24, height: 24)
+        ))
+        #expect(image.isTemplate)
+    }
+
+    @Test("Gradient background removal still rejects artwork crossing a capture edge")
+    @MainActor
+    func gradientCaptureEdgeSafety() throws {
+        let context = try #require(CGContext(
+            data: nil, width: 48, height: 48, bitsPerComponent: 8,
+            bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        context.setFillColor(NSColor(white: 0.15, alpha: 1).cgColor)
+        context.fill(CGRect(x: 0, y: 0, width: 48, height: 48))
+        context.setFillColor(NSColor.white.cgColor)
+        context.fill(CGRect(x: 0, y: 12, width: 20, height: 24))
+        let source = try #require(context.makeImage())
+        let result = IconCapturer.menuBarImage(
+            from: source,
+            logicalSize: CGSize(width: 24, height: 24)
+        )
+        #expect(result == nil)
+    }
+
+    @Test("A separately sampled nonlinear wallpaper does not become icon artwork")
+    @MainActor
+    func menuBarCaptureWithWallpaperSample() throws {
+        let context = try #require(CGContext(
+            data: nil, width: 48, height: 48, bitsPerComponent: 8,
+            bytesPerRow: 48 * 4, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        context.setFillColor(NSColor.blue.cgColor)
+        context.fill(CGRect(x: 0, y: 0, width: 48, height: 48))
+        context.setFillColor(NSColor.magenta.cgColor)
+        context.fill(CGRect(x: 8, y: 0, width: 12, height: 48))
+        let background = try #require(context.makeImage())
+        context.setFillColor(NSColor.white.cgColor)
+        context.fill(CGRect(x: 14, y: 10, width: 20, height: 28))
+        let source = try #require(context.makeImage())
+        let image = try #require(IconCapturer.menuBarImage(
+            from: source,
+            logicalSize: CGSize(width: 24, height: 24),
+            background: background
+        ))
+        #expect(image.isTemplate)
+    }
+
+    @Test("An adjacent edge fragment cannot discard or tint the central icon")
+    @MainActor
+    func adjacentCaptureFragment() throws {
+        let context = try #require(CGContext(
+            data: nil, width: 48, height: 48, bitsPerComponent: 8,
+            bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        context.setFillColor(NSColor.black.cgColor)
+        context.fill(CGRect(x: 0, y: 0, width: 48, height: 48))
+        let background = try #require(context.makeImage())
+        context.setFillColor(NSColor.white.cgColor)
+        context.fill(CGRect(x: 14, y: 10, width: 20, height: 28))
+        context.setFillColor(NSColor.magenta.cgColor)
+        context.fill(CGRect(x: 44, y: 12, width: 4, height: 24))
+        let source = try #require(context.makeImage())
+        let image = try #require(IconCapturer.menuBarImage(
+            from: source, logicalSize: CGSize(width: 24, height: 24), background: background
+        ))
+        #expect(image.isTemplate)
+    }
+
+    @Test("Weak material noise cannot produce an empty proxy")
+    @MainActor
+    func weakCaptureNoise() throws {
+        let context = try #require(CGContext(
+            data: nil, width: 48, height: 48, bitsPerComponent: 8,
+            bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        context.setFillColor(red: 0.2, green: 0.2, blue: 0.2, alpha: 1)
+        context.fill(CGRect(x: 0, y: 0, width: 48, height: 48))
+        let background = try #require(context.makeImage())
+        context.setFillColor(red: 0.4, green: 0.4, blue: 0.4, alpha: 1)
+        context.fill(CGRect(x: 14, y: 10, width: 20, height: 28))
+        let source = try #require(context.makeImage())
+        #expect(IconCapturer.menuBarImage(
+            from: source, logicalSize: CGSize(width: 24, height: 24), background: background
+        ) == nil)
+    }
+
+    @Test("A displaced neighbouring glyph is not accepted as the target icon")
+    @MainActor
+    func displacedCaptureArtwork() throws {
+        let context = try #require(CGContext(
+            data: nil, width: 56, height: 56, bitsPerComponent: 8,
+            bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        context.setFillColor(NSColor.black.cgColor)
+        context.fill(CGRect(x: 0, y: 0, width: 56, height: 56))
+        let background = try #require(context.makeImage())
+        context.setFillColor(NSColor.white.cgColor)
+        context.fill(CGRect(x: 2, y: 12, width: 32, height: 32))
+        let source = try #require(context.makeImage())
+        #expect(IconCapturer.menuBarImage(
+            from: source, logicalSize: CGSize(width: 28, height: 28), background: background
+        ) == nil)
+    }
+
+    @Test("Coloured artwork remains coloured on wallpaper with the same hue")
+    @MainActor
+    func colouredCaptureOnColouredWallpaper() throws {
+        let context = try #require(CGContext(
+            data: nil, width: 48, height: 48, bitsPerComponent: 8,
+            bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        context.setFillColor(NSColor(red: 1, green: 0.2, blue: 1, alpha: 1).cgColor)
+        context.fill(CGRect(x: 0, y: 0, width: 48, height: 48))
+        let background = try #require(context.makeImage())
+        context.setFillColor(NSColor(red: 0.9, green: 0.1, blue: 0.8, alpha: 1).cgColor)
+        context.fill(CGRect(x: 10, y: 10, width: 28, height: 28))
+        let source = try #require(context.makeImage())
+        let image = try #require(IconCapturer.menuBarImage(
+            from: source,
+            logicalSize: CGSize(width: 24, height: 24),
+            background: background
+        ))
+        #expect(!image.isTemplate)
     }
 
     @Test("Template conversion preserves detail contrast")

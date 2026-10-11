@@ -1,5 +1,426 @@
 # FoldBar build report
 
+## External import press versus click arbitration — 2026-10-11
+
+The user reported real menu/UI activation at the moment of pressing a visible
+menu-bar item to import it. The installed direct-drag preference was enabled.
+The existing gesture code already consumed an eligible plain down and replayed
+only on up, so that replay could not itself explain activation during a held
+press. Its session-stage tap was a plausible later interception point; Apple
+places the HID stage at WindowServer entry and the session stage at login-session
+entry ([CGEventTapLocation](https://developer.apple.com/documentation/coregraphics/cgeventtaplocation)).
+This ordering explanation is an inference, not a reproduced pre-fix trace.
+
+The scoped filter now prefers a head-insert HID tap. If creation is unavailable,
+it retains the existing scoped session fallback and logs the actual location;
+no extra permission prompt or identity change was added. Candidate geometry,
+modifier eligibility, marked synthetic replay bypass, visible-panel lifetime,
+and live revalidation before click/import remain unchanged. Diagnostics record
+claimed candidate presses, click/drag decisions, and tap disable notifications,
+without logging unrelated input or pointer coordinates.
+
+A concrete state-machine defect was also fixed: a release at least 5 points
+from its down could replay a click if no intermediate dragged event arrived,
+even while still inside the original status-item rectangle. Such coalesced
+sequences now begin/end a drag and never replay a click. If the tap is disabled
+while a claimed press is pending or dragging, the interaction is canceled,
+its remaining drag/up events are consumed after recovery, and no click is
+replayed. Active cancellation ends with no drop target and clears the preview.
+A normal released click within the threshold still activates once after the
+existing identity/frame checks.
+
+Verification on macOS 27.0 with Xcode 27.0:
+
+- XcodeGen registered `MenuBarImportGestureTests.swift`; project settings and
+  application identity remain unchanged. All **101 Swift Testing tests in eight
+  suites passed** on the final source. Eight new event-sequence tests cover held
+  presses, jitter/released clicks, threshold drags, coalesced drags, pass-through,
+  Command-drag, and cancellation of pending/active gestures. They exercise the
+  same synchronous decision path without creating taps, posting OS input, or
+  modifying defaults. The canceled-session test-host XPC diagnostic did not
+  cause a failure; the test host exited.
+- The universal Release build succeeded with no source compiler warnings;
+  Xcode emitted the existing skipped AppIntents metadata warning.
+- Candidate and installed app passed `codesign --verify --deep --strict`.
+  Bundle ID `local.foldbar.app`, version 0.2.0/build 2, team `42MUMXKY79`, and
+  designated requirement match the prior build. Architectures: x86_64 and arm64.
+  Installed executable SHA-256:
+  `0d11ba1f0a246d4b911486ca11ac9fe1eacf5df9b511a3ab3ee2b577ee645d10`.
+- The sole running app was `/Applications/FoldBar.app`, PID 30250. Native UI
+  inspection at 14:45:19 showed all nine panel proxies. At 14:45:18.516 the
+  installed process logged `import tap created location=0` (HID), followed by
+  `menu-bar import armed candidates=2 cachedBundles=9 persistedBundles=10`.
+  The direct-drag preference remained enabled.
+- Native MenuBarAgent screenshots still provided a blank white menu-bar strip,
+  so no trustworthy source coordinates were available for an automated physical
+  press/hold/drag. This pass verifies actual HID-tap creation and unit gesture
+  behavior; it does not establish that every real status-item menu stays closed
+  during live dragging. Multi-display, macOS 14–26, and privacy onboarding were
+  not re-proven. No system `«` interaction was performed.
+- The prior build is preserved in the verified backup ZIP
+  `~/Library/Application Support/FoldBar/Backups/FoldBar-before-press-drag-fix-2026-10-11-1444.zip`.
+  Temporary Debug/Release registrations were removed and the exact inspected
+  DerivedData directory was deleted. No new crash report appeared. No TCC reset,
+  preference deletion, distribution archive update, commit, or remote operation
+  was performed. `git diff --check` passed.
+
+
+## External drag preview black outline — 2026-10-11
+
+The user supplied a runtime screenshot showing a tight black rounded outline
+around an external Notion import preview. The shared cell surface contains no
+stroke or shadow. The external transparent borderless NSPanel still enabled an
+independent AppKit window shadow, unlike the individual grid cells. This was
+the identified source candidate for the extra outline.
+
+The external preview now sets `hasShadow = false` so the shared cell surface
+alone draws the card. Card dimensions, native artwork size, fill, and corner
+radius remain shared with the panel. The main overflow panel retains its shadow.
+No capture, membership, event forwarding, or permission behavior changed.
+
+Verification on macOS 27.0 with Xcode 27.0:
+
+- XcodeGen generation remained consistent with `project.yml`. All **93 Swift
+  Testing tests in seven suites passed**, including preview movement, sizes,
+  late screenshots, cancellation, and colour recovery. No additional test was
+  added for this low-impact window appearance setting.
+- The universal Release build succeeded with no source compiler warnings;
+  the existing AppIntents metadata warning remains.
+- Candidate and installed app passed `codesign --verify --deep --strict`.
+  Bundle ID `local.foldbar.app`, version 0.2.0/build 2, team `42MUMXKY79`, and
+  designated requirement match the previous installed build. Architectures:
+  x86_64 and arm64. Installed executable SHA-256:
+  `281db0fa751866eaad3a51cca941cbc4d1c4e64b9006486629701850348f67d4`.
+- The sole running app after clean replacement was `/Applications/FoldBar.app`,
+  PID 6616. At 14:26:52 native UI inspection confirmed the panel still rendered
+  its nine proxies normally. End-to-end live external dragging and the
+  disappearance of the outline still require runtime observation; compilation and existing window
+  tests alone are not visual acceptance evidence for the WindowServer shadow.
+- The previous app is preserved in the verified backup ZIP
+  `~/Library/Application Support/FoldBar/Backups/FoldBar-before-drag-border-fix-2026-10-11-1426.zip`.
+  Debug/Release app registrations were removed and the exact inspected temporary
+  DerivedData directory was deleted. No new crash report appeared. No TCC reset,
+  preference deletion, distribution archive update, commit, or remote operation
+  was performed. `git diff --check` passed.
+
+
+## Icon colour recovery and matching drag cells — 2026-10-11
+
+This supersedes the blue drag-card appearance and colour interpretation in the
+previous section. Native inspection reproduced pink fringes on Eagle and
+CodexSquad, with Bob and PixPin also carrying wallpaper tint. The capture
+classifier had counted chroma in already-composited antialiased pixels, and
+its coloured output multiplied those screenshot pixels by estimated alpha,
+retaining the wallpaper matte and reducing genuine colour opacity.
+
+Capture now fits neutral artwork against the sampled local background before
+classifying it as coloured. Neutral templates retain grey detail. For genuinely
+coloured artwork, flat chromatic interiors provide a small foreground palette;
+edge coverage is recovered against the background and output is premultiplied
+foreground colour. Neutral edges within coloured artwork are also un-matted.
+The existing clipping, displaced-artwork, substantial-artwork, menu-strip, and
+fail-open membership gates remain in place. Uniformly translucent artwork or
+colour gradients without a flat core still use a conservative estimate; this
+pass does not establish perfect reconstruction of every possible status item.
+The source bitmap context is kept alive until its pixel buffer has been copied.
+
+Panel cells, native panel drag previews, and external import previews now use
+one `OverflowIconCellSurface`. Square cards are 46 points high and wide, with
+9-point corners and the same native artwork sizing, fill, and appearance.
+Wide previews retain the original status-item frame's one-to-three-column span,
+including when the screenshot arrives late. No blue overlay or border is added
+to the dragged card. The destination drop zone retains its existing feedback.
+
+Verification on macOS 27.0 with Xcode 27.0:
+
+- XcodeGen registered the two new test files; no target identity or build
+  setting changed. All **93 Swift Testing tests in seven suites passed**.
+  New tests inspect output RGB and opacity for white/grey antialiasing on pink,
+  same-hue coloured cores, mixed neutral/coloured edges, and blank backgrounds.
+  Actual preview-window tests check square/wide dimensions and late-image spans;
+  existing movement and cancellation tests also pass.
+- The universal Release build succeeded with no source compiler warnings.
+  The only build warning is the existing skipped AppIntents metadata extraction.
+  The test host emitted a canceled-session XPC diagnostic; no test failed and
+  the host exited.
+- Candidate and installed app passed `codesign --verify --deep --strict`.
+  Bundle ID `local.foldbar.app`, version 0.2.0/build 2, team `42MUMXKY79`, and
+  designated requirement match the prior installed app. Architectures:
+  x86_64 and arm64. Installed executable SHA-256:
+  `04945f1ca8f19d3f9bac9ccfba7c7433ccf7a8f8e6fc3000a3ec6edfd4cd12ad`.
+- The sole running app was `/Applications/FoldBar.app`, PID 98154. At 14:14:31,
+  native UI inspection showed all **nine proxies**: ChatGPT, LOGO 16 black,
+  Notion, Clash Verge, Bob, Eagle, PixPin, CodexSquad, and 微信输入法.
+  The previous pink contamination was no longer visible. Bob and PixPin now
+  render as neutral artwork; their earlier pink was not evidence of an intrinsic
+  pink icon. Genuine colour preservation is covered by pixel regressions.
+- NeatDownloadManager's previously displaced/blank capture is still rejected;
+  its saved intent was preserved. No new item was hidden on an unusable image.
+- End-to-end external pointer dragging and dropping was not re-proven by native
+  automation; the frame, image sizing, shared style, movement, and cancellation
+  have code/window-test evidence. Multi-display interaction, proxy clicks,
+  privacy onboarding, and the macOS 14–26 path were not re-proven in this pass.
+- The prior installed build is preserved in the verified backup ZIP
+  `~/Library/Application Support/FoldBar/Backups/FoldBar-before-color-parity-2026-10-11-1414.zip`.
+  Temporary Debug/Release registrations were removed and the exact inspected
+  DerivedData directory was deleted after verification. No new crash report
+  appeared. No TCC reset, preference deletion, distribution archive update,
+  commit, or remote operation was performed. `git diff --check` passed.
+
+
+## Real icon capture and original drag appearance — 2026-10-11
+
+This supersedes the loading-indicator approach recorded below. The user's
+screenshot and installed import logs showed that the floating preview was
+tracking a drag while its real screenshot remained unavailable. The spinner
+made that capture failure look like an ongoing load and changed the appearance
+of the original blue drag card.
+
+The shared `IconDragPreviewSurface` is restored to its original image-based
+appearance. An active cold drag retains its latest pointer location; a late
+real screenshot appears there, and cancellation prevents it from reopening.
+There is no spinner or application-icon substitute on the macOS 27 path.
+
+Capture diagnosis showed usable ScreenCaptureKit images being rejected because
+wallpaper gradients were classified as artwork reaching the capture edges.
+Capture now uses an explicit display-local item rectangle and a separately
+filtered background sample. A four-corner residual corrects menu material
+differences between the two samples. The region-image fallback uses the same
+background sample. Significant coloured artwork keeps its colour. Square items
+can receive three points of padding within the display's menu strip and clear
+of the other items in that capture batch. Disconnected peripheral edge fragments
+are discarded; components reaching the centre still fail the clipping check.
+Weak neutral noise and substantially displaced artwork cannot create a proxy.
+Wide text and meter items retain their complete component layout.
+
+An attempted capture from full-width app-owned host windows did not resolve
+the remaining items and was removed. The final implementation captures only
+validated item rectangles, retains screenshots in memory, and keeps the
+existing private assertion and fail-open membership checks. No system `«`
+interaction was performed.
+
+Verification on macOS 27.0 with Xcode 27.0:
+
+- `xcodegen generate` left the tracked project unchanged; `git diff --check`
+  passed. All **85 Swift Testing cases in five suites passed**. Added coverage
+  includes display-local coordinates, padding boundaries and neighbours,
+  nonlinear wallpaper samples, colours on similar-hue backgrounds, peripheral
+  fragments, weak material noise, displaced artwork, pointer updates, late
+  screenshot delivery, and cancellation.
+- The universal Release build succeeded with no source compiler warnings.
+  Xcode emitted its existing AppIntents metadata warning because this app has
+  no AppIntents framework dependency.
+- Candidate and installed app passed `codesign --verify --deep --strict`.
+  Bundle ID `local.foldbar.app`, version 0.2.0, signing identity and designated
+  requirement remain unchanged. Architectures: arm64 and x86_64.
+- Installed executable SHA-256:
+  `a511e88978e71712836c98c93199c9d531b827a46860aec05d4b8ab2d7b879c5`.
+  The sole running app was `/Applications/FoldBar.app`, PID 82416.
+- At 13:52:45, native UI inspection of that installed candidate confirmed
+  **seven rendered proxies**: ChatGPT, LOGO 16 black, Notion, Clash Verge,
+  Bob, PixPin, and 微信输入法. Bob and PixPin retained visible pink artwork.
+  NeatDownloadManager was omitted after its capture showed displaced or
+  incomplete artwork. It was not newly hidden on that evidence; its persisted
+  intent remains available for a later capture. No empty proxy was rendered.
+- Import prefetch logs confirmed real images for visible Eagle, CodexSquad,
+  and AlDente candidates. Native menu-bar automation screenshots did not
+  supply usable source coordinates, so an end-to-end external pointer drag
+  and successful drop still require installed-runtime user acceptance.
+  Proxy activation, multi-display interaction, privacy onboarding, and the
+  macOS 14–26 path were not re-proven by this pass.
+- The previous spinner build is preserved in the verified backup ZIP
+  `~/Library/Application Support/FoldBar/Backups/FoldBar-before-real-capture-fix-2026-10-11.zip`.
+  Temporary Debug/Release app registrations were removed, and the exact
+  verification DerivedData directory was inspected and deleted after testing.
+  No new crash report appeared. No TCC reset, preferences deletion, commit,
+  distribution archive replacement, or remote operation was performed.
+
+## Immediate external drag preview — 2026-10-11
+
+Historical intermediate build; superseded by the real-capture correction above.
+
+The user observed no icon following the pointer during a menu-bar import.
+The installed import log confirmed two active drag sessions at 13:05:25 and
+13:05:28; both ended outside the drop targets. The preview code only created
+its floating NSPanel when an image was available. A cold cache or failed
+real screenshot therefore left an otherwise active drag with no pointer
+feedback.
+
+External drags now create the floating preview immediately, using a loading
+indicator while the real screenshot is unavailable. Every pointer update moves
+that panel; a completed screenshot replaces the loading surface at the most
+recent point. Image updates after cancellation cannot reopen the panel. The
+loading indicator is never added to the real-image cache or used to hide an
+application; existing identity, screenshot, and membership checks remain in
+place. Import logs now distinguish a warm preview, a completed screenshot, and
+an unavailable screenshot.
+
+Verification on macOS 27.0 with Xcode 27.0:
+
+- All 76 Swift Testing cases passed. Three new tests instantiate the actual
+  preview NSPanel and check immediate visibility without an image, movement
+  after pointer updates, replacement at the latest point, and cancellation.
+  These window-state tests are not a live pointer-drag acceptance pass.
+- `xcodegen generate` left the tracked project consistent with `project.yml`.
+- Universal Release build succeeded with no source compiler warnings. Xcode
+  emitted the existing AppIntents metadata warning.
+- Candidate passed `codesign --verify --deep --strict`, retained identifier
+  `local.foldbar.app` and the installed designated requirement, and contains
+  arm64 and x86_64 slices.
+- Executable SHA-256:
+  `35a46507052f431f372786c492961ab939ddf7c7e2acdc3c5e984410dbfcb9a5`.
+- The exact candidate was installed at `/Applications/FoldBar.app`. The prior
+  app is preserved in the verified ZIP
+  `~/Library/Application Support/FoldBar/Backups/FoldBar-before-preview-fix-2026-10-11.zip`.
+- Installed PID 55371 remained running through the 45-second observation with
+  no new crash report. The opened panel logged 10 import candidates. Temporary
+  Debug/Release app registrations and the exact verification directory were
+  removed after inspection. `git diff --check` passed; no commit or remote
+  operation was performed.
+- A real drag with this candidate still requires user acceptance. The native
+  UI automation menu-bar screenshot did not provide usable drag coordinates.
+  Screenshot success, full import, proxy activation, privacy onboarding, and
+  macOS 14–26 interactions were not re-proven by these tests.
+
+## Visible-item direct import regression — 2026-10-11
+
+The user reported that a plain drag closed the panel before any drag preview
+appeared. The image correction introduced fail-open capture behavior, but the
+macOS 27 import-candidate filter still excluded the full persisted managed set.
+A persisted application whose capture failed therefore remained visible while
+being absent from both the panel and its drag candidates. The outside-click
+monitor dismissed the panel on mouse-down because that item was not eligible.
+Live inspection of the previous installed build confirmed that direct drag was
+enabled, the panel contained only two cached proxies, and persisted PixPin,
+Clash Verge, and ChatGPT items remained present in MenuBarAgent.
+
+The filter now excludes only the bundles represented by FoldBar's active panel
+cache. Visible uncaptured bundles can start another import. The real-frame
+checks still reject off-strip, notch, and occluded rectangles. The system
+overflow control is used solely as a rectangle occlusion check; its position
+does not define import membership. Capture and identity checks before hiding
+remain intact. Import monitoring now logs setup and drag begin/end for runtime
+diagnosis.
+
+Verification on macOS 27.0 with Xcode 27.0:
+
+- `xcodegen generate` left the tracked project unchanged.
+- All 73 Swift Testing cases passed. New regressions cover direct mouse-down
+  eligibility of visible uncaptured bundles, exclusion of cached bundles,
+  negative-X display geometry, occlusion, and independence from the system
+  overflow boundary.
+- The universal Release build succeeded without source compiler warnings.
+  Xcode emitted its existing AppIntents metadata warning because the app has
+  no AppIntents framework dependency.
+- The Release candidate and installed app passed
+  `codesign --verify --deep --strict`; bundle identifier and designated
+  requirement match the prior installed app. Architectures: arm64 + x86_64.
+- Executable SHA-256:
+  `778a5a025df9d513860247d1bf2df95c3e30aa068cc986fc320961adfbe79e27`.
+- The exact candidate was installed at `/Applications/FoldBar.app` and ran as
+  PID 54594. Opening the installed panel logged `candidates=8 cachedBundles=1
+  persistedBundles=8`, confirming that visible items in the persisted set
+  were no longer all excluded. The prior app is preserved in the verified ZIP
+  `~/Library/Application Support/FoldBar/Backups/FoldBar-before-drag-fix-2026-10-11.zip`.
+- Full pointer-drag acceptance is pending the user's installed-runtime retry.
+  The UI automation interface exposes the menu extras but its menu-bar capture
+  is blank, so it did not supply usable drag coordinates. Unit tests and
+  listener setup alone do not prove successful drop, screenshots, or proxy
+  activation. The macOS 14–26 path was not manually exercised.
+- The installed process remained running for more than one minute without a
+  new crash report. Temporary Debug and Release app registrations were removed,
+  and the exact verification DerivedData directory was deleted after inspection.
+- `git diff --check` passed. Existing unrelated changes were preserved; no
+  commit, distribution ZIP replacement, or remote operation was performed.
+
+## Menu-bar proxy image correction — 2026-10-09
+
+The macOS 27 region-capture path previously converted every real screenshot
+to a monochrome template. It now keeps the sampled colour pixels for artwork
+with significant chroma and retains adaptive templates for neutral glyphs.
+The panel continues to use the captured item's original aspect ratio.
+
+The managed-item path no longer accepts an owning application's icon as a
+substitute for its menu-bar artwork. Initial collapse retries missing captures
+and hides only application bundles whose observed menu extras all have real
+captures. A late-launching or restarted application stays visible while its
+new generation is uncaptured; the collapsed monitor captures it before adding
+that bundle to the assertion. Import likewise declines to hide an application
+unless all of its observed menu extras have real captures. Preview fallback
+remains available only on the macOS 14–26 path. Region capture also rejects
+virtual/off-strip frames and rectangles occluded by the system overflow control;
+that control is used only to avoid copying its pixels, not for membership.
+ScreenCaptureKit's nullable Objective-C callbacks are used directly for
+shareable-content and image requests so an empty result does not trap in the
+generated Swift async bridge.
+
+The first installed candidate (`f8279add6c595bbecbd63e9319c7218e047918e34b8cc7a36dfc0f39d7602a1d`)
+crashed about 14 seconds after launch. The crash report at
+`~/Library/Logs/DiagnosticReports/FoldBar-2026-10-08-233656.ips` shows
+`EXC_BREAKPOINT` in the generated `SCShareableContent` async completion
+handler; the system log immediately before it reports that SkyLight returned
+zero active displays during a region screenshot. The previous installed app
+was restored and launched before the nullable-callback repair was built.
+
+Verification on macOS 27.0 with Xcode 27.0:
+
+- `xcodegen generate` left the tracked project consistent with `project.yml`.
+- All 70 Swift Testing cases passed, including colour and neutral screenshot
+  rendering, complete per-application capture, and occluded-frame rejection.
+- The Release build completed without source warnings.
+- The Release app retained bundle identifier `local.foldbar.app`, passed
+  `codesign --verify --deep --strict`, and contains arm64 and x86_64 slices.
+- The repaired candidate executable SHA-256 is
+  `5cec78ee393f7d6e57eec4def00a487f386c7dbc1c23a6f9b297bc7347fe6adb`.
+  That exact build was installed at `/Applications/FoldBar.app` and ran as PID
+  50808 for more than one minute with several collapsed-monitor intervals and
+  no new FoldBar crash report. The prior app is preserved as a verified ZIP at
+  `~/Library/Application Support/FoldBar/Backups/FoldBar-before-icon-fix-2026-10-08.zip`.
+- The user's specific panel icons, proxy clicks, drag behavior, and privacy
+  onboarding have not yet been visually rechecked in this installed build.
+
+## macOS 27 late status-item reconciliation — 2026-09-26
+
+The macOS 27 assessment assertion is an application allowlist, not only a list
+of FoldBar-managed applications. The previous adapter cached only the managed
+bundle set. A menu-bar application that launched or restarted after the active
+assertion could therefore be absent from the effective MenuBarAgent session:
+its real item was parked off-screen, but FoldBar did not persist or cache it as
+a managed proxy. Replacing the assertion while the previous session remained
+active updated the configured allowlist but did not make MenuBarAgent publish
+the new application generation.
+
+The final adapter keys the active configuration by the managed set, allowed
+bundle identifiers, and the bundle/PID generations that currently publish
+public `AXMenuExtra` elements. The collapsed macOS 27 monitor refreshes that AX
+inventory before reconciling the assertion. When it observes a new un-managed
+menu-extra generation without a managed-set change, it releases the stale
+session for 120 ms and reapplies the same managed set. Ordinary helper launches
+do not trigger this path, managed membership changes retain the existing atomic
+replacement, and macOS 14–26 retain their separator implementation unchanged.
+
+Live A/B verification used macOS 27.0 (26A428) and a temporary signed status
+item with bundle identifier `local.foldbar.capacity-probe`. Before the fix its
+AX frame remained off-screen at `(7, 1095, 26, 24)` across multiple five-second
+monitor polls, and quitting FoldBar immediately moved it to the real menu bar.
+With the final reconciliation candidate, the same item began off-screen at one
+second and moved to the visible menu-bar frame `(969, 5, 26, 24)` by eight
+seconds without quitting or restarting FoldBar. CodexSquad remained at a visible
+menu-bar frame during this test, and the eight persisted managed bundle
+identifiers were unchanged.
+
+Final verification used Xcode 27.0, Swift 6.4, and the macOS 27.0 SDK:
+
+- `xcodegen generate` left the tracked project consistent with `project.yml`.
+- All 66 Swift Testing cases passed.
+- The Release build succeeded for `x86_64` and `arm64`.
+- `codesign --verify --deep --strict` passed for bundle identifier
+  `local.foldbar.app`.
+- Release executable SHA-256:
+  `732862b210d93a6929f0bcb22e0fd85f51e3b4c7931e2259534d76f2da6c73c7`.
+- The exact candidate was installed at `/Applications/FoldBar.app` and was
+  running as PID 19668 for the final probe and CodexSquad checks.
+
 ## macOS 27 independent visibility candidate — 2026-09-26
 
 The macOS 27 architecture no longer treats the system `«` control as

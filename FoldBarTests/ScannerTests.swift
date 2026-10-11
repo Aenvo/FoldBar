@@ -1,4 +1,5 @@
 import ApplicationServices
+import AppKit
 import CoreGraphics
 import Testing
 
@@ -16,6 +17,80 @@ struct ScannerTests {
     }
 
     static let separator = window(1, x: -4200, width: 5016)
+
+    static func importWindow(
+        _ id: CGWindowID,
+        x: CGFloat,
+        y: CGFloat = 4,
+        bundleIdentifier: String
+    ) -> MenuBarItemWindow {
+        MenuBarItemWindow(
+            id: id,
+            frame: CGRect(x: x, y: y, width: 24, height: 24),
+            ownerName: "Example",
+            windowName: "Item-\(id)",
+            bundleIdentifier: bundleIdentifier
+        )
+    }
+
+    @Test("Visible persisted bundles without a panel capture still begin direct imports")
+    @MainActor
+    func visibleUncapturedBundleRemainsImportable() {
+        let pending = Self.importWindow(10, x: 1200, bundleIdentifier: "com.example.pending")
+        let hidden = Self.importWindow(11, x: 1230, bundleIdentifier: "com.example.hidden")
+        let persistedBundles: Set<String> = [pending.bundleIdentifier, hidden.bundleIdentifier]
+        let cachedBundles: Set<String> = [hidden.bundleIdentifier]
+        let candidates = StatusBarController.privateImportCandidates(
+            among: [pending, hidden],
+            hiddenBundleIdentifiers: persistedBundles.intersection(cachedBundles),
+            visibleSegments: [CGRect(x: 1000, y: 0, width: 500, height: 40)],
+            overflowFrame: nil
+        )
+
+        #expect(candidates.map(\.id) == [pending.id])
+        #expect(MenuBarCommandDragMonitor.acceptsImportMouseDown(
+            at: CGPoint(x: pending.frame.midX, y: pending.frame.midY),
+            among: candidates,
+            flags: [],
+            allowsDirectDrag: true
+        ))
+        #expect(!MenuBarCommandDragMonitor.acceptsImportMouseDown(
+            at: CGPoint(x: hidden.frame.midX, y: hidden.frame.midY),
+            among: candidates,
+            flags: [],
+            allowsDirectDrag: true
+        ))
+    }
+
+    @Test("Private imports reject off-strip and occluded frames on a left-hand display")
+    @MainActor
+    func privateImportFrameSafety() {
+        let visible = Self.importWindow(20, x: -1300, bundleIdentifier: "com.example.visible")
+        let offStrip = Self.importWindow(21, x: -1200, y: 500, bundleIdentifier: "com.example.offstrip")
+        let occluded = Self.importWindow(22, x: -1100, bundleIdentifier: "com.example.occluded")
+        let candidates = StatusBarController.privateImportCandidates(
+            among: [visible, offStrip, occluded],
+            hiddenBundleIdentifiers: [],
+            visibleSegments: [CGRect(x: -1440, y: 0, width: 500, height: 40)],
+            overflowFrame: CGRect(x: -1105, y: 0, width: 32, height: 32)
+        )
+
+        #expect(candidates.map(\.id) == [visible.id])
+    }
+
+    @Test("The system overflow control is an occlusion check, not an import boundary")
+    @MainActor
+    func privateImportDoesNotUseSystemBoundary() {
+        let visible = Self.importWindow(30, x: 1150, bundleIdentifier: "com.example.visible")
+        let candidates = StatusBarController.privateImportCandidates(
+            among: [visible],
+            hiddenBundleIdentifiers: [],
+            visibleSegments: [CGRect(x: 1000, y: 0, width: 500, height: 40)],
+            overflowFrame: CGRect(x: 1200, y: 0, width: 32, height: 32)
+        )
+
+        #expect(candidates.map(\.id) == [visible.id])
+    }
 
     @Test("macOS 27 selects Accessibility discovery")
     func accessibilityBackendSelection() {
@@ -45,6 +120,127 @@ struct ScannerTests {
 
         #expect(allowed == ["com.example.visible", "local.foldbar.app"])
         #expect(MenuBarVisibilityRestriction.allSystemItemRawValues == Array(0...15))
+    }
+
+    @Test("A bundle is hidden only after every menu extra has a real capture")
+    @MainActor
+    func completePrivateBundleCapture() {
+        let firstIdentity = MenuBarAccessibilityIdentity(
+            processIdentifier: 40,
+            bundleIdentifier: "com.example.multiple",
+            ordinal: 0
+        )
+        let secondIdentity = MenuBarAccessibilityIdentity(
+            processIdentifier: 40,
+            bundleIdentifier: "com.example.multiple",
+            ordinal: 1
+        )
+        let first = MenuBarItemWindow(
+            id: 100,
+            frame: CGRect(x: 400, y: 0, width: 24, height: 24),
+            ownerName: "Multiple",
+            windowName: "First",
+            accessibilityIdentity: firstIdentity,
+            bundleIdentifier: firstIdentity.bundleIdentifier
+        )
+        let second = MenuBarItemWindow(
+            id: 101,
+            frame: CGRect(x: 424, y: 0, width: 24, height: 24),
+            ownerName: "Multiple",
+            windowName: "Second",
+            accessibilityIdentity: secondIdentity,
+            bundleIdentifier: secondIdentity.bundleIdentifier
+        )
+        let image = NSImage(size: CGSize(width: 24, height: 24))
+        let firstCapture = CapturedItem(window: first, image: image)
+        let secondCapture = CapturedItem(window: second, image: image)
+
+        #expect(StatusBarController.completeCapturedBundles(
+            among: [first, second],
+            captured: [firstCapture]
+        ).isEmpty)
+        #expect(StatusBarController.completeCapturedBundles(
+            among: [first, second],
+            captured: [firstCapture, secondCapture]
+        ) == ["com.example.multiple"])
+    }
+
+    @Test("Private visibility configuration changes when a new app launches")
+    func privateVisibilityConfigurationTracksRunningApps() {
+        let hidden = Set(["com.example.hidden"])
+        let before = MenuBarVisibilityRestriction.configurationKey(
+            runningApplications: [
+                .init(bundleIdentifier: "com.example.visible", processIdentifier: 10),
+                .init(bundleIdentifier: "com.example.hidden", processIdentifier: 20),
+            ],
+            statusItemApplications: [
+                .init(bundleIdentifier: "com.example.visible", processIdentifier: 10),
+            ],
+            hiddenBundleIdentifiers: hidden,
+            ownBundleIdentifier: "local.foldbar.app"
+        )
+        let after = MenuBarVisibilityRestriction.configurationKey(
+            runningApplications: [
+                .init(bundleIdentifier: "com.example.visible", processIdentifier: 10),
+                .init(bundleIdentifier: "com.example.hidden", processIdentifier: 20),
+                .init(
+                    bundleIdentifier: "com.example.new-status-item",
+                    processIdentifier: 30
+                ),
+            ],
+            statusItemApplications: [
+                .init(bundleIdentifier: "com.example.visible", processIdentifier: 10),
+                .init(
+                    bundleIdentifier: "com.example.new-status-item",
+                    processIdentifier: 30
+                ),
+            ],
+            hiddenBundleIdentifiers: hidden,
+            ownBundleIdentifier: "local.foldbar.app"
+        )
+
+        #expect(before != after)
+        #expect(after.hiddenBundleIdentifiers == hidden)
+        #expect(after.allowedBundleIdentifiers.contains(
+            "com.example.new-status-item"
+        ))
+        #expect(MenuBarVisibilityRestriction.requiresRegistrationReset(
+            previous: before,
+            next: after
+        ))
+    }
+
+    @Test("Private visibility configuration changes when an app relaunches")
+    func privateVisibilityConfigurationTracksAppGeneration() {
+        let before = MenuBarVisibilityRestriction.configurationKey(
+            runningApplications: [
+                .init(bundleIdentifier: "com.example.status", processIdentifier: 10),
+            ],
+            statusItemApplications: [
+                .init(bundleIdentifier: "com.example.status", processIdentifier: 10),
+            ],
+            hiddenBundleIdentifiers: ["com.example.hidden"],
+            ownBundleIdentifier: "local.foldbar.app"
+        )
+        let after = MenuBarVisibilityRestriction.configurationKey(
+            runningApplications: [
+                .init(bundleIdentifier: "com.example.status", processIdentifier: 11),
+            ],
+            statusItemApplications: [
+                .init(bundleIdentifier: "com.example.status", processIdentifier: 11),
+            ],
+            hiddenBundleIdentifiers: ["com.example.hidden"],
+            ownBundleIdentifier: "local.foldbar.app"
+        )
+
+        #expect(before.allowedBundleIdentifiers == after.allowedBundleIdentifiers)
+        #expect(before.statusItemApplicationGenerations
+            != after.statusItemApplicationGenerations)
+        #expect(before != after)
+        #expect(MenuBarVisibilityRestriction.requiresRegistrationReset(
+            previous: before,
+            next: after
+        ))
     }
 
     @Test("Accessibility identities produce stable reserved IDs")

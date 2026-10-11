@@ -1,4 +1,5 @@
 import AppKit
+import OSLog
 @preconcurrency import CoreGraphics
 
 enum MenuBarDragSettings {
@@ -34,6 +35,8 @@ final class MenuBarCommandDragMonitor {
     static let syntheticClickEventMarker: Int64 = 0x46_4F_4C_44_42_41_52
     static let directDragThreshold: CGFloat = 5
 
+    private static let logger = Logger(subsystem: "local.foldbar.app", category: "ImportGesture")
+
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var candidates: [MenuBarItemWindow] = []
@@ -41,6 +44,8 @@ final class MenuBarCommandDragMonitor {
     private var toggleTargetFrame = CGRect.zero
     private var pendingDirectDrag: PendingDirectDrag?
     private var activeItem: MenuBarItemWindow?
+    private var lastGesturePoint = CGPoint.zero
+    private var consumesUntilMouseUp = false
 
     private let onBegin: BeginHandler
     private let onUpdate: UpdateHandler
@@ -72,17 +77,31 @@ final class MenuBarCommandDragMonitor {
         self.toggleTargetFrame = toggleTargetFrame
 
         let mask = Self.mask(for: [.leftMouseDown, .leftMouseDragged, .leftMouseUp])
-        guard let eventTap = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
-            place: .headInsertEventTap,
-            options: .defaultTap,
-            eventsOfInterest: mask,
-            callback: menuBarCommandDragEventCallback,
-            userInfo: Unmanaged.passUnretained(self).toOpaque()
-        ) else {
+        // Intercept before WindowServer's menu-bar handling sees the original
+        // press. A session tap may be too late for a mouse-down driven menu.
+        var createdTap: CFMachPort?
+        for location in [CGEventTapLocation.cghidEventTap, .cgSessionEventTap] {
+            createdTap = CGEvent.tapCreate(
+                tap: location,
+                place: .headInsertEventTap,
+                options: .defaultTap,
+                eventsOfInterest: mask,
+                callback: menuBarCommandDragEventCallback,
+                userInfo: Unmanaged.passUnretained(self).toOpaque()
+            )
+            if createdTap != nil {
+                Self.logger.notice("import tap created location=\(location.rawValue, privacy: .public)")
+                if location == .cgSessionEventTap {
+                    Self.logger.notice("early HID tap unavailable; using session fallback")
+                }
+                break
+            }
+        }
+        guard let eventTap = createdTap else {
             self.candidates = []
             self.panelTargetFrame = .zero
             self.toggleTargetFrame = .zero
+            Self.logger.error("import tap unavailable")
             return false
         }
 
@@ -101,6 +120,8 @@ final class MenuBarCommandDragMonitor {
     func stop() {
         activeItem = nil
         pendingDirectDrag = nil
+        consumesUntilMouseUp = false
+        lastGesturePoint = .zero
         candidates = []
         panelTargetFrame = .zero
         toggleTargetFrame = .zero
@@ -199,80 +220,126 @@ final class MenuBarCommandDragMonitor {
     }
 
     fileprivate func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+        if type != .tapDisabledByTimeout, type != .tapDisabledByUserInput,
+           event.getIntegerValueField(.eventSourceUserData) == Self.syntheticClickEventMarker {
+            return Unmanaged.passUnretained(event)
+        }
+        let consumed = processMouseEvent(
+            type: type,
+            at: event.location,
+            flags: event.flags,
+            allowsDirectDrag: UserDefaults.standard.bool(
+                forKey: MenuBarDragSettings.directDragDefaultsKey
+            )
+        )
+        return consumed ? nil : Unmanaged.passUnretained(event)
+    }
+
+    /// Runs the gesture decision independently of tap creation or posted input.
+    /// A claimed press stays private until release; callbacks describe its
+    /// result and never send the original press to the owning application.
+    func processMouseEvent(
+        type: CGEventType,
+        at point: CGPoint,
+        flags: CGEventFlags,
+        allowsDirectDrag: Bool
+    ) -> Bool {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            let source = activeItem
+            let hadClaimedPress = source != nil || pendingDirectDrag != nil || consumesUntilMouseUp
             activeItem = nil
             pendingDirectDrag = nil
+            // The down was already swallowed. Do not turn its eventual up
+            // into a click or send a partial gesture to the real application.
+            consumesUntilMouseUp = hadClaimedPress
+            if let source { onEnd(source, lastGesturePoint, nil) }
+            Self.logger.notice("import tap disabled type=\(type.rawValue, privacy: .public) claimedPress=\(hadClaimedPress, privacy: .public)")
             if let eventTap {
                 CGEvent.tapEnable(tap: eventTap, enable: true)
             }
-            return Unmanaged.passUnretained(event)
+            return false
         }
 
-        if event.getIntegerValueField(.eventSourceUserData) == Self.syntheticClickEventMarker {
-            return Unmanaged.passUnretained(event)
+        if consumesUntilMouseUp {
+            if type == .leftMouseUp {
+                consumesUntilMouseUp = false
+                return true
+            }
+            if type == .leftMouseDragged { return true }
+            // A new press means the old release was lost while the tap was
+            // disabled. Evaluate the new gesture with the normal strict gates.
+            if type == .leftMouseDown { consumesUntilMouseUp = false }
         }
 
-        let point = event.location
         switch type {
         case .leftMouseDown:
             guard let source = Self.sourceWindow(at: point, among: candidates) else {
-                return Unmanaged.passUnretained(event)
+                return false
             }
-            let allowsDirectDrag = UserDefaults.standard.bool(
-                forKey: MenuBarDragSettings.directDragDefaultsKey
-            )
             guard Self.acceptsImportMouseDown(
                 at: point,
                 among: candidates,
-                flags: event.flags,
+                flags: flags,
                 allowsDirectDrag: allowsDirectDrag
             ) else {
-                return Unmanaged.passUnretained(event)
+                Self.logger.notice("candidate press passed through item=\(source.id, privacy: .public) flags=\(flags.rawValue, privacy: .public)")
+                return false
             }
-            if event.flags.contains(.maskCommand) {
+            lastGesturePoint = point
+            if flags.contains(.maskCommand) {
                 activeItem = source
+                Self.logger.notice("command press claimed item=\(source.id, privacy: .public)")
                 onBegin(source, point)
-                return nil
+                return true
             }
             pendingDirectDrag = PendingDirectDrag(item: source, startPoint: point)
-            return nil
+            Self.logger.notice("direct press held item=\(source.id, privacy: .public)")
+            return true
 
         case .leftMouseDragged:
             if activeItem != nil {
+                lastGesturePoint = point
                 onUpdate(point, currentDropTarget(at: point))
-                return nil
+                return true
             }
-            guard let pendingDirectDrag else {
-                return Unmanaged.passUnretained(event)
-            }
+            guard let pendingDirectDrag else { return false }
+            lastGesturePoint = point
             guard Self.exceedsDirectDragThreshold(
                 from: pendingDirectDrag.startPoint,
                 to: point
-            ) else { return nil }
+            ) else { return true }
 
             self.pendingDirectDrag = nil
             activeItem = pendingDirectDrag.item
+            Self.logger.notice("held press became drag item=\(pendingDirectDrag.item.id, privacy: .public)")
             onBegin(pendingDirectDrag.item, pendingDirectDrag.startPoint)
             onUpdate(point, currentDropTarget(at: point))
-            return nil
+            return true
 
         case .leftMouseUp:
+            lastGesturePoint = point
             if let source = activeItem {
                 activeItem = nil
                 onEnd(source, point, currentDropTarget(at: point))
-                return nil
+                return true
             }
-            guard let pendingDirectDrag else {
-                return Unmanaged.passUnretained(event)
-            }
+            guard let pendingDirectDrag else { return false }
             self.pendingDirectDrag = nil
-            if pendingDirectDrag.item.frame.insetBy(dx: -2, dy: -2).contains(point) {
+            // Fast/coalesced gestures may deliver no dragged event. A release
+            // beyond the threshold is still a drag, even inside the old frame.
+            if Self.exceedsDirectDragThreshold(from: pendingDirectDrag.startPoint, to: point) {
+                Self.logger.notice("release resolved coalesced drag item=\(pendingDirectDrag.item.id, privacy: .public)")
+                onBegin(pendingDirectDrag.item, pendingDirectDrag.startPoint)
+                onUpdate(point, currentDropTarget(at: point))
+                onEnd(pendingDirectDrag.item, point, currentDropTarget(at: point))
+            } else if pendingDirectDrag.item.frame.insetBy(dx: -2, dy: -2).contains(point) {
+                Self.logger.notice("held press resolved click item=\(pendingDirectDrag.item.id, privacy: .public)")
                 onClick(pendingDirectDrag.item, pendingDirectDrag.startPoint)
             }
-            return nil
+            return true
 
         default:
-            return Unmanaged.passUnretained(event)
+            return false
         }
     }
 

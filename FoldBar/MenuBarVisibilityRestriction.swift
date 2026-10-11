@@ -12,6 +12,17 @@ import OSLog
 /// visible and does not commit a new managed bundle.
 @MainActor
 final class MenuBarVisibilityRestriction {
+    nonisolated struct RunningApplicationIdentity: Equatable {
+        let bundleIdentifier: String
+        let processIdentifier: pid_t
+    }
+
+    nonisolated struct ConfigurationKey: Equatable {
+        let hiddenBundleIdentifiers: Set<String>
+        let allowedBundleIdentifiers: [String]
+        let statusItemApplicationGenerations: [String]
+    }
+
     nonisolated private static let logger = Logger(
         subsystem: "local.foldbar.app",
         category: "VisibilityRestriction"
@@ -52,7 +63,7 @@ final class MenuBarVisibilityRestriction {
 
     private var frameworkHandle: UnsafeMutableRawPointer?
     private var activeAssertion: AnyObject?
-    private var activeHiddenBundleIdentifiers: Set<String> = []
+    private var activeConfigurationKey: ConfigurationKey?
     private var isInvalidated = false
 
     nonisolated static func isSupported(on majorVersion: Int) -> Bool {
@@ -75,16 +86,85 @@ final class MenuBarVisibilityRestriction {
         return allowed.sorted()
     }
 
-    /// Atomically replaces FoldBar's private assertion. The replacement is
-    /// activated before the previous one is invalidated, avoiding an
-    /// all-visible flash while membership changes.
+    nonisolated static func configurationKey(
+        runningApplications: [RunningApplicationIdentity],
+        statusItemApplications: [RunningApplicationIdentity],
+        hiddenBundleIdentifiers: Set<String>,
+        ownBundleIdentifier: String?
+    ) -> ConfigurationKey {
+        let allowed = allowedBundleIdentifiers(
+            runningBundleIdentifiers: runningApplications.map(
+                \.bundleIdentifier
+            ),
+            hiddenBundleIdentifiers: hiddenBundleIdentifiers,
+            ownBundleIdentifier: ownBundleIdentifier
+        )
+        let allowedSet = Set(allowed)
+        return ConfigurationKey(
+            hiddenBundleIdentifiers: hiddenBundleIdentifiers,
+            allowedBundleIdentifiers: allowed,
+            // MenuBarAgent can bind an allowlisted bundle to the application
+            // generation publishing the status item when the assertion is
+            // activated. Track only observed, un-managed menu-extra owners so
+            // ordinary application and helper launches do not churn assertions.
+            statusItemApplicationGenerations: Set(
+                statusItemApplications.compactMap { application in
+                    guard allowedSet.contains(application.bundleIdentifier) else {
+                        return nil
+                    }
+                    return "\(application.bundleIdentifier)|\(application.processIdentifier)"
+                }
+            ).sorted()
+        )
+    }
+
+    nonisolated static func requiresRegistrationReset(
+        previous: ConfigurationKey?,
+        next: ConfigurationKey
+    ) -> Bool {
+        guard let previous,
+              previous.hiddenBundleIdentifiers == next.hiddenBundleIdentifiers else {
+            return false
+        }
+        return !Set(next.statusItemApplicationGenerations).subtracting(
+            previous.statusItemApplicationGenerations
+        ).isEmpty
+    }
+
+    /// Replaces FoldBar's private assertion. Managed membership changes remain
+    /// atomic. A newly observed, un-managed application generation uses the
+    /// bounded registration reset below because macOS 27 does not publish it
+    /// while the stale assessment session remains continuously active.
     func apply(hiddenBundleIdentifiers: Set<String>) async -> Bool {
         guard Self.isSupported(
             on: ProcessInfo.processInfo.operatingSystemVersion.majorVersion
         ) else { return hiddenBundleIdentifiers.isEmpty }
         guard !isInvalidated else { return false }
 
-        if hiddenBundleIdentifiers == activeHiddenBundleIdentifiers,
+        let runningApplications = NSWorkspace.shared.runningApplications
+            .filter { !$0.isTerminated }
+            .compactMap { application -> RunningApplicationIdentity? in
+                guard let bundleIdentifier = application.bundleIdentifier,
+                      !bundleIdentifier.isEmpty else { return nil }
+                return RunningApplicationIdentity(
+                    bundleIdentifier: bundleIdentifier,
+                    processIdentifier: application.processIdentifier
+                )
+            }
+        let statusItemApplications = MenuBarAccessibility.snapshots().map {
+            snapshot in
+            RunningApplicationIdentity(
+                bundleIdentifier: snapshot.identity.bundleIdentifier,
+                processIdentifier: snapshot.identity.processIdentifier
+            )
+        }
+        let configurationKey = Self.configurationKey(
+            runningApplications: runningApplications,
+            statusItemApplications: statusItemApplications,
+            hiddenBundleIdentifiers: hiddenBundleIdentifiers,
+            ownBundleIdentifier: Bundle.main.bundleIdentifier
+        )
+        if configurationKey == activeConfigurationKey,
            activeAssertion != nil {
             return true
         }
@@ -93,9 +173,25 @@ final class MenuBarVisibilityRestriction {
             return true
         }
 
+        let requiresRegistrationReset = activeAssertion != nil
+            && Self.requiresRegistrationReset(
+                previous: activeConfigurationKey,
+                next: configurationKey
+            )
+        if requiresRegistrationReset {
+            // MenuBarAgent does not retroactively publish a menu extra from a
+            // newly observed application generation while an older assessment
+            // session remains continuously active. Briefly release only for
+            // this reconciliation case, then reapply the unchanged managed set.
+            invalidateActiveAssertion()
+            guard (try? await Task.sleep(for: .milliseconds(120))) != nil,
+                  !Task.isCancelled,
+                  !isInvalidated else { return false }
+        }
+
         guard loadPrivateFramework(),
               let configuration = makeConfiguration(
-                  hiddenBundleIdentifiers: hiddenBundleIdentifiers
+                  allowedBundleIdentifiers: configurationKey.allowedBundleIdentifiers
               ),
               let assertion = makeAssertion() else {
             Self.logger.error(
@@ -111,7 +207,7 @@ final class MenuBarVisibilityRestriction {
 
         let previousAssertion = activeAssertion
         activeAssertion = assertion
-        activeHiddenBundleIdentifiers = hiddenBundleIdentifiers
+        activeConfigurationKey = configurationKey
         if let previousAssertion {
             invalidate(previousAssertion)
         }
@@ -129,6 +225,13 @@ final class MenuBarVisibilityRestriction {
         // exit rather than invalidating its code pages.
     }
 
+    /// Restore real items after a recoverable capture failure while keeping
+    /// this adapter available for a later user-initiated collapse.
+    func releaseActiveRestriction() {
+        guard !isInvalidated else { return }
+        invalidateActiveAssertion()
+    }
+
     private func loadPrivateFramework() -> Bool {
         if frameworkHandle != nil { return true }
         frameworkHandle = dlopen(
@@ -139,7 +242,7 @@ final class MenuBarVisibilityRestriction {
     }
 
     private func makeConfiguration(
-        hiddenBundleIdentifiers: Set<String>
+        allowedBundleIdentifiers: [String]
     ) -> AnyObject? {
         guard let configurationClass = NSClassFromString(
             "MBAssessmentModeConfiguration"
@@ -147,12 +250,6 @@ final class MenuBarVisibilityRestriction {
             return nil
         }
 
-        let allowedBundles = Self.allowedBundleIdentifiers(
-            runningBundleIdentifiers: NSWorkspace.shared.runningApplications
-                .compactMap(\.bundleIdentifier),
-            hiddenBundleIdentifiers: hiddenBundleIdentifiers,
-            ownBundleIdentifier: Bundle.main.bundleIdentifier
-        )
         let systemItems = Self.allSystemItemRawValues.map(
             NSNumber.init(value:)
         )
@@ -170,7 +267,7 @@ final class MenuBarVisibilityRestriction {
             rawConfiguration,
             selector,
             systemItems as NSArray,
-            allowedBundles as NSArray
+            allowedBundleIdentifiers as NSArray
         )
     }
 
@@ -221,7 +318,7 @@ final class MenuBarVisibilityRestriction {
             invalidate(activeAssertion)
         }
         activeAssertion = nil
-        activeHiddenBundleIdentifiers = []
+        activeConfigurationKey = nil
     }
 
     private func invalidate(_ assertion: AnyObject) {
