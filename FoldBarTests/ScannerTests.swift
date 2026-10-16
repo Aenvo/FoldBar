@@ -7,10 +7,15 @@ import Testing
 
 @Suite("Overflow discovery")
 struct ScannerTests {
-    static func window(_ id: CGWindowID, x: CGFloat, width: CGFloat) -> MenuBarItemWindow {
+    static func window(
+        _ id: CGWindowID,
+        x: CGFloat,
+        y: CGFloat = 0,
+        width: CGFloat
+    ) -> MenuBarItemWindow {
         MenuBarItemWindow(
             id: id,
-            frame: CGRect(x: x, y: 0, width: width, height: 24),
+            frame: CGRect(x: x, y: y, width: width, height: 24),
             ownerName: "Control Center",
             windowName: "Item-\(id)"
         )
@@ -304,10 +309,49 @@ struct ScannerTests {
         let right = Self.window(3, x: 740, width: 30)
         let unrelated = Self.window(4, x: 500, width: 30)
         let found = MenuBarItemScanner.itemsLeft(
-            of: 780,
+            of: CGRect(x: 780, y: 0, width: 16, height: 24),
             among: [unrelated, right, left]
         )
         #expect(found.map(\.id) == [2, 3])
+    }
+
+    @Test("Expanded discovery excludes an overlapping-X display's menu bar")
+    func expandedManagedSectionStaysInSeparatorStrip() {
+        let managed = Self.window(2, x: 740, y: -1080, width: 30)
+        let otherDisplay = Self.window(3, x: 740, y: 0, width: 30)
+        let found = MenuBarItemScanner.itemsLeft(
+            of: CGRect(x: 780, y: -1080, width: 16, height: 24),
+            among: [managed, otherDisplay]
+        )
+        #expect(found.map(\.id) == [2])
+    }
+
+    @Test("Collapsed discovery keeps negative-X parked items in the separator's strip")
+    func collapsedManagedSectionStaysInSeparatorStrip() {
+        let separator = Self.window(1, x: -4200, y: 1080, width: 5016)
+        let managed = Self.window(2, x: -4240, y: 1080, width: 30)
+        let otherDisplay = Self.window(3, x: -4240, y: 0, width: 30)
+        let found = MenuBarItemScanner.hiddenItems(among: [
+            otherDisplay, separator, managed
+        ])
+        #expect(found.map(\.id) == [2])
+    }
+
+    @Test("Legacy scanner converts a secondary display's AppKit separator to Quartz")
+    @MainActor
+    func secondaryDisplaySeparatorCoordinates() {
+        let separator = MenuBarCommandDragMonitor.quartzFrame(
+            fromAppKit: CGRect(x: -500, y: 2160, width: 16, height: 24),
+            mainDisplayBounds: CGRect(x: 0, y: 0, width: 1920, height: 1104)
+        )
+        let managed = Self.window(2, x: -540, y: -1080, width: 30)
+        let otherDisplay = Self.window(3, x: -540, y: 0, width: 30)
+        let found = MenuBarItemScanner.itemsLeft(
+            of: separator,
+            among: [otherDisplay, managed]
+        )
+        #expect(separator.minY == -1080)
+        #expect(found.map(\.id) == [2])
     }
 
     @Test("macOS 27 native overflow boundary separates hidden and visible apps")

@@ -3,11 +3,126 @@ import Testing
 
 @testable import FoldBar
 
+@objc(FoldBarAssertionOwnershipProbe)
+private final class AssertionOwnershipProbe: NSObject {}
+
+@objc(FoldBarConfigurationOwnershipProbe)
+private final class ConfigurationOwnershipProbe: NSObject {
+    let systemItems: NSArray
+    let bundleIdentifiers: NSArray
+
+    @objc(initWithAllowedSystemItems:allowedBundleIdentifiers:)
+    init(allowedSystemItems: NSArray, allowedBundleIdentifiers: NSArray) {
+        systemItems = allowedSystemItems
+        bundleIdentifiers = allowedBundleIdentifiers
+        super.init()
+    }
+}
+
+@Suite("Visibility bridge ownership")
+@MainActor
+struct VisibilityBridgeOwnershipTests {
+    @Test("Dynamically initialized assertions release their retained result")
+    func assertionReleasesInitializedObject() {
+        weak var observed: AnyObject?
+        autoreleasepool {
+            let object = MenuBarVisibilityRestriction.makeAssertion(
+                of: AssertionOwnershipProbe.self
+            )
+            #expect(object is AssertionOwnershipProbe)
+            observed = object
+            #expect(observed != nil)
+        }
+        #expect(observed == nil)
+    }
+
+    @Test("Dynamically initialized configurations preserve arguments and release")
+    func configurationReleasesInitializedObject() {
+        weak var observed: AnyObject?
+        autoreleasepool {
+            let object = MenuBarVisibilityRestriction.makeConfiguration(
+                of: ConfigurationOwnershipProbe.self,
+                allowedBundleIdentifiers: ["local.foldbar.example"]
+            ) as? ConfigurationOwnershipProbe
+            #expect(object != nil)
+            #expect(object?.systemItems as? [Int] == Array(0...15))
+            #expect(object?.bundleIdentifiers as? [String] == ["local.foldbar.example"])
+            observed = object
+        }
+        #expect(observed == nil)
+    }
+
+    @Test("A missing configuration initializer fails before allocation")
+    func missingInitializerFailsClosed() {
+        #expect(MenuBarVisibilityRestriction.makeConfiguration(
+            of: NSObject.self,
+            allowedBundleIdentifiers: []
+        ) == nil)
+    }
+}
+
 @Suite("Synthetic event safety")
 @MainActor
 struct SafetyTests {
     static let main = CGRect(x: 0, y: 0, width: 1710, height: 1107)
     static let left = CGRect(x: -1920, y: 0, width: 1920, height: 1080)
+
+    @Test("Overflow panels follow their anchor across vertically stacked displays")
+    func overflowPanelStackedDisplays() {
+        let lower = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+        let upper = CGRect(x: 0, y: 1080, width: 1920, height: 1080)
+        let lowerVisible = CGRect(x: 0, y: 0, width: 1920, height: 1055)
+        let upperVisible = CGRect(x: 0, y: 1080, width: 1920, height: 1055)
+        let screens = [
+            (frame: lower, visibleFrame: lowerVisible),
+            (frame: upper, visibleFrame: upperVisible)
+        ]
+
+        // Both anchors sit in menu bars excluded from the visible frames.
+        #expect(OverflowPanel.screenFrame(
+            containing: CGRect(x: 1500, y: 2135, width: 24, height: 25),
+            screens: screens
+        ) == upperVisible)
+        #expect(OverflowPanel.screenFrame(
+            containing: CGRect(x: 1500, y: 1055, width: 24, height: 25),
+            screens: Array(screens.reversed())
+        ) == lowerVisible)
+    }
+
+    @Test("Overflow panel display selection uses full bounds around Dock insets")
+    func overflowPanelNegativeDisplayAndDockInset() {
+        let mainVisible = CGRect(x: 0, y: 0, width: 1710, height: 1082)
+        let leftVisible = CGRect(x: -1920, y: 0, width: 1840, height: 1055)
+        let screens = [
+            (frame: Self.main, visibleFrame: mainVisible),
+            (frame: Self.left, visibleFrame: leftVisible)
+        ]
+
+        // A right-side Dock narrows the usable left display area. The anchor
+        // still belongs to that display even when the primary area is closer.
+        #expect(OverflowPanel.screenFrame(
+            containing: CGRect(x: -30, y: 1055, width: 24, height: 25),
+            screens: screens
+        ) == leftVisible)
+    }
+
+    @Test("An off-screen overflow anchor selects the nearest display in two dimensions")
+    func overflowPanelOffscreenAnchor() {
+        let lower = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+        let upper = CGRect(x: 0, y: 1200, width: 1920, height: 1080)
+        let screens = [
+            (frame: lower, visibleFrame: lower),
+            (frame: upper, visibleFrame: upper)
+        ]
+        #expect(OverflowPanel.screenFrame(
+            containing: CGRect(x: 1500, y: 1160, width: 24, height: 24),
+            screens: screens
+        ) == upper)
+        #expect(OverflowPanel.screenFrame(
+            containing: .zero,
+            screens: []
+        ) == .zero)
+    }
 
     @Test("A real-image drag preview follows pointer updates")
     func externalPreviewWithoutScreenshot() throws {

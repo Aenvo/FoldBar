@@ -266,7 +266,9 @@ final class OverflowPanel {
 
         let screen = Self.screenFrame(
             containing: anchorFrame,
-            screens: NSScreen.screens.map(\.visibleFrame)
+            screens: NSScreen.screens.map {
+                (frame: $0.frame, visibleFrame: $0.visibleFrame)
+            }
         )
         var size = hosting.frame.size
         size.width = min(size.width, screen.width - 2 * Self.edgeInset)
@@ -333,11 +335,28 @@ final class OverflowPanel {
         }
     }
 
-    static func screenFrame(containing anchor: NSRect, screens: [NSRect]) -> NSRect {
+    static func screenFrame(
+        containing anchor: NSRect,
+        screens: [(frame: NSRect, visibleFrame: NSRect)]
+    ) -> NSRect {
         let midpoint = NSPoint(x: anchor.midX, y: anchor.midY)
-        return screens.first { $0.minX <= midpoint.x && midpoint.x < $0.maxX }
-            ?? screens.first
-            ?? .zero
+        // A status item's anchor is in the menu bar, outside visibleFrame.
+        // Resolve its display using the full bounds before applying the usable
+        // area; matching only X chooses the wrong display in stacked layouts.
+        if let screen = screens.first(where: { $0.frame.contains(midpoint) }) {
+            return screen.visibleFrame
+        }
+
+        // Display reconfiguration can briefly leave the old anchor off-screen.
+        // Keep the panel on the nearest display in both coordinate axes.
+        func distanceSquared(to frame: NSRect) -> CGFloat {
+            let dx = max(frame.minX - midpoint.x, 0, midpoint.x - frame.maxX)
+            let dy = max(frame.minY - midpoint.y, 0, midpoint.y - frame.maxY)
+            return dx * dx + dy * dy
+        }
+        return screens.min {
+            distanceSquared(to: $0.frame) < distanceSquared(to: $1.frame)
+        }?.visibleFrame ?? .zero
     }
 
     func close() {

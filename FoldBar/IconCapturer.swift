@@ -80,6 +80,7 @@ enum IconCapturer {
         includeFallback: Bool = false,
         diagnostics: Bool = false
     ) async -> [CGWindowID: NSImage] {
+        guard !Task.isCancelled else { return [:] }
         let needsWindowCapture = windows.contains {
             $0.nativeWindowID != nil
                 || ($0.accessibilityIdentity != nil && allowAccessibilityRegionCapture)
@@ -90,9 +91,11 @@ enum IconCapturer {
         } else {
             content = nil
         }
+        guard !Task.isCancelled else { return [:] }
         var result: [CGWindowID: NSImage] = [:]
 
         for window in windows {
+            guard !Task.isCancelled else { return result }
             if let nativeWindowID = window.nativeWindowID,
                let scWindow = content?.windows.first(where: {
                    $0.windowID == nativeWindowID
@@ -104,10 +107,12 @@ enum IconCapturer {
                 configuration.showsCursor = false
                 let filter = SCContentFilter(desktopIndependentWindow: scWindow)
 
-                if let image = await captureWindowImage(
+                let image = await captureWindowImage(
                     contentFilter: filter,
                     configuration: configuration
-                ) {
+                )
+                guard !Task.isCancelled else { return result }
+                if let image {
                     // Preserve the real logical size. Replacing it with a fixed
                     // width changes the image aspect ratio and visibly squeezes
                     // text meters such as temperatures and battery.
@@ -125,25 +130,31 @@ enum IconCapturer {
                         neighbours: windows.filter { $0.id != window.id }.map(\.frame)
                     )
                     for attempt in 0..<3 where result[window.id] == nil {
+                        guard !Task.isCancelled else { return result }
                         if attempt > 0 {
-                            try? await Task.sleep(for: .milliseconds(70))
+                            guard (try? await Task.sleep(for: .milliseconds(70))) != nil,
+                                  !Task.isCancelled else { return result }
                         }
                         let displayImage = await captureDisplayRegionImage(
                             in: captureFrame,
                             content: content
                         )
+                        guard !Task.isCancelled else { return result }
                         let backgroundImage = displayImage == nil ? nil : await captureDisplayRegionImage(
                             in: captureFrame,
                             content: content,
                             includeMenuBar: false,
                             excludingBundleIdentifier: window.bundleIdentifier
                         )
+                        guard !Task.isCancelled else { return result }
                         var captured = displayImage.flatMap {
                             menuBarImage(from: $0, logicalSize: captureFrame.size, background: backgroundImage, diagnostics: diagnostics)
                         }
                         var regionImage: CGImage?
                         if captured == nil {
+                            guard !Task.isCancelled else { return result }
                             regionImage = await captureRegionImage(in: captureFrame)
+                            guard !Task.isCancelled else { return result }
                             captured = regionImage.flatMap {
                                 menuBarImage(from: $0, logicalSize: captureFrame.size, background: backgroundImage, diagnostics: diagnostics)
                             }

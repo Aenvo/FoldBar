@@ -44,7 +44,7 @@ Do not modify sibling repositories or reference checkouts under the surrounding 
 
 ## Build and test workflow
 
-Requirements are macOS 14 or newer, Xcode 16 or newer, and XcodeGen. The current verified environment and results are recorded in `BUILD_REPORT.md`.
+Runtime requires macOS 14 or newer. Building the current source requires Xcode 26 or newer and XcodeGen because it references the macOS 26 Liquid Glass SDK; use Xcode 27 for macOS 27 verification. The current verified environment and results are recorded in `BUILD_REPORT.md`.
 
 From the repository root:
 

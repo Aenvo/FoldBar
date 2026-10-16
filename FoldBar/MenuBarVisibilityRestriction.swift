@@ -38,17 +38,17 @@ final class MenuBarVisibilityRestriction {
     private typealias Allocate = @convention(c) (
         AnyClass,
         Selector
-    ) -> AnyObject?
+    ) -> Unmanaged<AnyObject>?
     private typealias Initialize = @convention(c) (
         AnyObject,
         Selector
-    ) -> AnyObject?
+    ) -> Unmanaged<AnyObject>?
     private typealias InitializeConfiguration = @convention(c) (
         AnyObject,
         Selector,
         NSArray,
         NSArray
-    ) -> AnyObject?
+    ) -> Unmanaged<AnyObject>?
     private typealias ActivationReply = @convention(block) (NSError?) -> Void
     private typealias Activate = @convention(c) (
         AnyObject,
@@ -65,6 +65,7 @@ final class MenuBarVisibilityRestriction {
     private var activeAssertion: AnyObject?
     private var activeConfigurationKey: ConfigurationKey?
     private var isInvalidated = false
+    private var requestGeneration: UInt64 = 0
 
     nonisolated static func isSupported(on majorVersion: Int) -> Bool {
         majorVersion >= 27
@@ -139,7 +140,9 @@ final class MenuBarVisibilityRestriction {
         guard Self.isSupported(
             on: ProcessInfo.processInfo.operatingSystemVersion.majorVersion
         ) else { return hiddenBundleIdentifiers.isEmpty }
-        guard !isInvalidated else { return false }
+        guard !isInvalidated, !Task.isCancelled else { return false }
+        requestGeneration &+= 1
+        let generation = requestGeneration
 
         let runningApplications = NSWorkspace.shared.runningApplications
             .filter { !$0.isTerminated }
@@ -186,7 +189,8 @@ final class MenuBarVisibilityRestriction {
             invalidateActiveAssertion()
             guard (try? await Task.sleep(for: .milliseconds(120))) != nil,
                   !Task.isCancelled,
-                  !isInvalidated else { return false }
+                  !isInvalidated,
+                  generation == requestGeneration else { return false }
         }
 
         guard loadPrivateFramework(),
@@ -201,6 +205,13 @@ final class MenuBarVisibilityRestriction {
         }
 
         guard await activate(assertion, configuration: configuration) else {
+            invalidate(assertion)
+            return false
+        }
+        // Completion can arrive after cancellation, a newer request, or quit.
+        // Never publish that retired assertion over the current managed set.
+        guard !isInvalidated, !Task.isCancelled,
+              generation == requestGeneration else {
             invalidate(assertion)
             return false
         }
@@ -219,6 +230,7 @@ final class MenuBarVisibilityRestriction {
     func invalidate() {
         guard !isInvalidated else { return }
         isInvalidated = true
+        requestGeneration &+= 1
         invalidateActiveAssertion()
         // Private Objective-C classes and autoreleased transport objects may
         // outlive the assertion. Keep MenuBarClientCore loaded until process
@@ -229,6 +241,7 @@ final class MenuBarVisibilityRestriction {
     /// this adapter available for a later user-initiated collapse.
     func releaseActiveRestriction() {
         guard !isInvalidated else { return }
+        requestGeneration &+= 1
         invalidateActiveAssertion()
     }
 
@@ -246,10 +259,22 @@ final class MenuBarVisibilityRestriction {
     ) -> AnyObject? {
         guard let configurationClass = NSClassFromString(
             "MBAssessmentModeConfiguration"
-        ), let rawConfiguration = Self.allocate(configurationClass) else {
+        ) else {
             return nil
         }
+        return Self.makeConfiguration(
+            of: configurationClass,
+            allowedBundleIdentifiers: allowedBundleIdentifiers
+        )
+    }
 
+    /// Keep alloc's +1 outside ARC until the initializer consumes it. Calling
+    /// either IMP through an AnyObject return would use the +0 autoreleased
+    /// convention and leave the initializer's retained result unbalanced.
+    static func makeConfiguration(
+        of configurationClass: AnyClass,
+        allowedBundleIdentifiers: [String]
+    ) -> AnyObject? {
         let systemItems = Self.allSystemItemRawValues.map(
             NSNumber.init(value:)
         )
@@ -259,33 +284,39 @@ final class MenuBarVisibilityRestriction {
         guard let implementation = Self.instanceImplementation(
             configurationClass,
             selector: selector
-        ) else { return nil }
+        ), let rawConfiguration = Self.allocate(configurationClass) else {
+            return nil
+        }
         return unsafeBitCast(
             implementation,
             to: InitializeConfiguration.self
         )(
-            rawConfiguration,
+            rawConfiguration.takeUnretainedValue(),
             selector,
             systemItems as NSArray,
             allowedBundleIdentifiers as NSArray
-        )
+        )?.takeRetainedValue()
     }
 
     private func makeAssertion() -> AnyObject? {
         guard let assertionClass = NSClassFromString(
             "MBAssessmentModeAssertion"
-        ), let rawAssertion = Self.allocate(assertionClass) else {
+        ) else {
             return nil
         }
+        return Self.makeAssertion(of: assertionClass)
+    }
+
+    static func makeAssertion(of assertionClass: AnyClass) -> AnyObject? {
         let selector = NSSelectorFromString("init")
         guard let implementation = Self.instanceImplementation(
             assertionClass,
             selector: selector
-        ) else { return nil }
+        ), let rawAssertion = Self.allocate(assertionClass) else { return nil }
         return unsafeBitCast(implementation, to: Initialize.self)(
-            rawAssertion,
+            rawAssertion.takeUnretainedValue(),
             selector
-        )
+        )?.takeRetainedValue()
     }
 
     private func activate(
@@ -330,7 +361,7 @@ final class MenuBarVisibilityRestriction {
         unsafeBitCast(implementation, to: SendVoid.self)(assertion, selector)
     }
 
-    private static func allocate(_ type: AnyClass) -> AnyObject? {
+    private static func allocate(_ type: AnyClass) -> Unmanaged<AnyObject>? {
         let selector = NSSelectorFromString("alloc")
         guard let metaClass = object_getClass(type),
               let method = class_getInstanceMethod(metaClass, selector) else {

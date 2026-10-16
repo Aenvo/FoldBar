@@ -1,5 +1,67 @@
 # FoldBar build report
 
+## Performance and compatibility audit — 2026-10-16
+
+Reviewed source at `2ee7b40` and fixed the following confirmed paths:
+
+- Dynamic Objective-C `alloc`/`init` IMPs returned `AnyObject`, incorrectly
+  applying the autoreleased return convention to retained results. Independent
+  NSObject probes leaked with the old code in both Debug and optimized builds.
+  The bridge now returns `Unmanaged`, transfers the initialized +1 result to
+  ARC, and checks initializer availability before allocation. Three regression
+  tests call the actual production bridge with harmless NSObject subclasses,
+  verify configuration arguments, and confirm weak references become nil.
+- With direct menu-bar dragging enabled, replaying an ordinary click waited for
+  an all-application AX scan and used `AXPress`, which some hosted/Tauri extras
+  acknowledge without presenting UI. It now refreshes only the target identity,
+  validates its live geometry and identity, and posts the existing marked
+  primary-click sequence.
+- Closing the panel during an AX refresh could start a new, unused screenshot
+  batch after cancellation. The refresh loop now rechecks panel/tap lifetime;
+  image capture cooperatively stops at window, retry, sleep and screenshot-await
+  boundaries. An in-flight ScreenCaptureKit request itself is not forcibly
+  interrupted. Screenshot scheduling cancellation was reviewed statically;
+  the tests do not inject ScreenCaptureKit callbacks.
+- Private imports now share the tracked membership-operation task and exclude
+  concurrent activation/promotion. Trigger clicks cannot start another
+  transition during those operations. Opening the panel cancels background reconciliation; dismissing it
+  rearms monitoring. Assertion requests check cancellation and generation after
+  suspension so late completions cannot replace newer state or survive quit.
+  These race protections were reviewed at the control-flow level; delayed real
+  private-service callbacks were not injected or exercised on the live menu bar.
+- Legacy discovery now uses the separator's Quartz rectangle and menu-bar Y
+  strip, preserving negative-X parked items while excluding another vertically
+  arranged display. Panel display selection uses full screen bounds before
+  returning its usable area. Six new geometry tests cover stacked displays,
+  coordinate conversion, negative coordinates, Dock insets and stale anchors.
+- Build documentation now requires Xcode 26+ for the referenced Liquid Glass
+  SDK. The deployment target remains macOS 14.0; macOS 27 verification uses
+  Xcode 27.
+
+Verification on macOS 27.0 (`26A428`), Xcode 27.0 (`27A266a`):
+
+- XcodeGen generation leaves the tracked project unchanged.
+- All **110 Swift Testing tests in nine suites passed** on the final source
+  (101 baseline tests plus nine regressions).
+- Universal Release (`x86_64 arm64`) build succeeded without source compiler
+  warnings. Xcode emitted only its existing skipped AppIntents metadata warning.
+- `codesign --verify --deep --strict` passed. Bundle identifier
+  `local.foldbar.app`, version 0.2.0/build 2, team `42MUMXKY79`, deployment target
+  14.0. Temporary Release executable SHA-256:
+  `e29149e1c747a39381fa3d45b1ba4848c8023ac523d47ac1de646a2efc213200`.
+- A five-second sample of the existing installed process, PID 30250 at
+  `/Applications/FoldBar.app`, showed the main thread predominantly waiting for
+  events, with a 145.3 MB physical footprint. This is a short baseline sample of
+  the previous build, not a before/after benchmark or long-term leak profile.
+- Native UI inspection timed out twice. No new real-menu-bar click/drag,
+  private-service timing, privacy-onboarding, macOS 14–26, or physical
+  multi-display acceptance is claimed. The installed app and tracked
+  `dist/FoldBar-0.2.0-macOS.zip` were not replaced by this audit.
+- Test hosts exited; temporary Debug/Release Launch Services registrations were
+  removed and the inspected DerivedData directory was deleted.
+  `git diff --check` passed. The pre-existing untracked `.codex-probe/` directory
+  remains outside the commit.
+
 ## External import press versus click arbitration — 2026-10-11
 
 The user reported real menu/UI activation at the moment of pressing a visible

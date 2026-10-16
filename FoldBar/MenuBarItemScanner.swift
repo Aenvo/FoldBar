@@ -65,21 +65,36 @@ enum MenuBarItemScanner {
     /// width. Capturing at this point avoids the visible flash that would be
     /// caused by expanding the separator after the user opens the panel.
     @MainActor
-    static func itemsLeft(of separatorMinX: CGFloat) -> [MenuBarItemWindow] {
-        itemsLeft(of: separatorMinX, among: statusWindows())
+    static func itemsLeft(of separatorFrame: CGRect) -> [MenuBarItemWindow] {
+        itemsLeft(of: separatorFrame, among: statusWindows())
     }
 
     static func itemsLeft(
-        of separatorMinX: CGFloat,
+        of separatorFrame: CGRect,
         among windows: [MenuBarItemWindow]
     ) -> [MenuBarItemWindow] {
-        var edge = separatorMinX
+        guard separatorFrame.minX.isFinite,
+              separatorFrame.minY.isFinite,
+              separatorFrame.width.isFinite,
+              separatorFrame.height.isFinite,
+              separatorFrame.width > 0,
+              separatorFrame.height > 0,
+              separatorFrame.height <= 40 else { return [] }
+
+        var edge = separatorFrame.minX
         var result: [MenuBarItemWindow] = []
         let candidates = windows
             .filter {
-                $0.frame.maxX <= separatorMinX + 1
+                $0.frame.maxX <= separatorFrame.minX + 1
+                    && $0.frame.width > 0
                     && $0.frame.width < separatorMinWidth
+                    && $0.frame.height > 0
                     && $0.frame.height <= 40
+                    // Displays can overlap in X while their menu bars are at
+                    // different global Y coordinates. Parked windows retain
+                    // this strip even when the separator sends X off-screen.
+                    && $0.frame.minY >= separatorFrame.minY - 2
+                    && $0.frame.maxY <= separatorFrame.minY + 42
             }
             .sorted { $0.frame.maxX > $1.frame.maxX }
 
@@ -97,18 +112,7 @@ enum MenuBarItemScanner {
             .max(by: { $0.frame.minX < $1.frame.minX })
         else { return [] }
 
-        var edge = separator.frame.minX
-        var result: [MenuBarItemWindow] = []
-        let candidates = windows
-            .filter { $0.frame.maxX <= separator.frame.minX + 1 && $0.frame.width < separatorMinWidth }
-            .sorted { $0.frame.maxX > $1.frame.maxX }
-
-        for window in candidates {
-            guard edge - window.frame.maxX <= contiguityGap else { break }
-            result.append(window)
-            edge = window.frame.minX
-        }
-        return result.sorted { $0.frame.minX < $1.frame.minX }
+        return itemsLeft(of: separator.frame, among: windows)
     }
 
     /// macOS 27 retains virtual Accessibility frames for native-overflow items.

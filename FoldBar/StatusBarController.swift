@@ -166,6 +166,7 @@ final class StatusBarController {
         promotionTask?.cancel()
         promotionTask = nil
         preparingCollapse = false
+        isCollapsed = false
         disarmAutoCollapse()
         disarmMenuBarImport()
         panel.close()
@@ -177,8 +178,6 @@ final class StatusBarController {
             separatorItem.length = NSStatusItem.variableLength
         }
         toggleItem.length = NSStatusItem.variableLength
-        guard isCollapsed else { return }
-        isCollapsed = false
     }
 
     private func scheduleInitialCollapse() {
@@ -208,6 +207,9 @@ final class StatusBarController {
     }
 
     private func toggle() {
+        // Do not start a second visibility transition while a click or
+        // membership change is still resolving its live target.
+        guard activationTask == nil, promotionTask == nil else { return }
         if isCollapsed {
             if expandedMenuBarPanel.isVisible {
                 expandedMenuBarPanel.close()
@@ -238,7 +240,10 @@ final class StatusBarController {
 
         let windows: [MenuBarItemWindow]
         if let separatorFrame = separatorItem.button?.window?.frame {
-            windows = MenuBarItemScanner.itemsLeft(of: separatorFrame.minX)
+            windows = MenuBarItemScanner.itemsLeft(of: MenuBarCommandDragMonitor.quartzFrame(
+                fromAppKit: separatorFrame,
+                mainDisplayBounds: CGDisplayBounds(CGMainDisplayID())
+            ))
         } else {
             windows = []
         }
@@ -382,6 +387,7 @@ final class StatusBarController {
 
     private func expandRealMenuBar(removingSeparatorGap: Bool = false) {
         guard isCollapsed else { return }
+        isCollapsed = false
         disarmCollapsedItemMonitor()
         cacheCaptureTask?.cancel()
         cacheCaptureTask = nil
@@ -398,7 +404,6 @@ final class StatusBarController {
             || removingSeparatorGap
             ? 0
             : NSStatusItem.variableLength
-        isCollapsed = false
         updateToggleIcon()
     }
 
@@ -458,8 +463,14 @@ final class StatusBarController {
             shouldDeferDismissalForExternalMouseDown: { [weak self] event in
                 self?.shouldDeferPanelDismissal(for: event) ?? false
             },
-            onDismiss: { [weak self] in self?.disarmMenuBarImport() }
+            onDismiss: { [weak self] in
+                self?.disarmMenuBarImport()
+                self?.armCollapsedItemMonitor()
+            }
         )
+        // A suspended reconciliation must not publish an older visibility set
+        // after the user starts an import or activation from this panel.
+        disarmCollapsedItemMonitor()
         armMenuBarImport()
     }
 
@@ -489,10 +500,13 @@ final class StatusBarController {
                     : nil
             }
         }
-        guard let separatorMinX = separatorItem.button?.window?.frame.minX else {
+        guard let separatorFrame = separatorItem.button?.window?.frame else {
             return []
         }
-        return MenuBarItemScanner.itemsLeft(of: separatorMinX)
+        return MenuBarItemScanner.itemsLeft(of: MenuBarCommandDragMonitor.quartzFrame(
+            fromAppKit: separatorFrame,
+            mainDisplayBounds: CGDisplayBounds(CGMainDisplayID())
+        ))
     }
 
     private func showExpandedMenuBar() {
@@ -579,6 +593,7 @@ final class StatusBarController {
     }
 
     private func reconcilePrivateManagedImages() async {
+        guard !Task.isCancelled, isCollapsed, !panel.isVisible else { return }
         let liveItems = MenuBarItemScanner.statusWindows().filter {
             managedBundleIdentifiers.contains($0.bundleIdentifier)
         }
@@ -603,7 +618,7 @@ final class StatusBarController {
         let newlyCaptured = await IconCapturer.capture(
             Self.capturablePrivateItems(missing)
         )
-        guard !Task.isCancelled, isCollapsed else { return }
+        guard !Task.isCancelled, isCollapsed, !panel.isVisible else { return }
         let candidate: [CapturedItem] = reusable + newlyCaptured
         let completeBundles = Self.completeCapturedBundles(
             among: liveItems,
@@ -740,7 +755,7 @@ final class StatusBarController {
             if closesExpandedProxies { expandedMenuBarPanel.close() }
             return
         }
-        guard activationTask == nil, promotionTask == nil else {
+        guard !preparingCollapse, activationTask == nil, promotionTask == nil else {
             if closesExpandedProxies { expandedMenuBarPanel.close() }
             return
         }
@@ -774,9 +789,11 @@ final class StatusBarController {
         let temporarilyHidden = previouslyHidden.subtracting([
             bundleIdentifier
         ])
-        guard await visibilityRestriction.apply(
+        let applied = await visibilityRestriction.apply(
             hiddenBundleIdentifiers: temporarilyHidden
-        ) else {
+        )
+        guard !Task.isCancelled else { return }
+        guard applied else {
             showAlert(
                 title: "图标暂时无法点击",
                 message: "macOS 27 没有接受这次临时显示请求。FoldBar 已保持原收纳状态。"
@@ -950,16 +967,20 @@ final class StatusBarController {
     private func promotePrivateBundleToMenuBar(_ bundleIdentifier: String) {
         guard !bundleIdentifier.isEmpty,
               managedBundleIdentifiers.contains(bundleIdentifier),
+              !preparingCollapse,
+              activationTask == nil,
               promotionTask == nil else { return }
         promotionTask = Task { @MainActor [weak self] in
             guard let self else { return }
             let updated = self.managedBundleIdentifiers.subtracting([
                 bundleIdentifier
             ])
-            if await self.visibilityRestriction.apply(
+            let applied = await self.visibilityRestriction.apply(
                 hiddenBundleIdentifiers: self.cachedPrivateBundleIdentifiers
                     .subtracting([bundleIdentifier])
-            ) {
+            )
+            guard !Task.isCancelled else { return }
+            if applied {
                 self.managedBundleIdentifiers = updated
                 ManagedMenuBarBundles.save(updated)
                 self.cachedItems.removeAll {
@@ -1174,6 +1195,9 @@ final class StatusBarController {
                 guard (try? await Task.sleep(for: .milliseconds(250))) != nil else { return }
                 guard self.panel.isVisible else { return }
                 await MenuBarItemScanner.refreshStatusWindows()
+                guard !Task.isCancelled,
+                      self.panel.isVisible,
+                      self.menuBarImportMonitor.isRunning else { return }
                 let candidates = self.currentImportCandidates()
                 self.menuBarImportMonitor.updateCandidates(candidates)
                 self.prefetchImportPreviewImages(for: candidates)
@@ -1352,18 +1376,27 @@ final class StatusBarController {
             guard let self else { return }
             self.panel.close()
             await Task.yield()
-            await MenuBarItemScanner.refreshStatusWindows()
+
+            // The candidate already supplies a validated identity. Re-resolve
+            // only that owner rather than waiting for every application's AX
+            // tree before replaying an ordinary click.
+            let frame: CGRect?
+            if MenuBarItemScanner.usesAccessibilityBackend {
+                frame = MenuBarItemScanner.refreshStatusWindow(item)?.frame
+            } else {
+                frame = MenuBarItemScanner.frame(of: item.id)
+            }
 
             guard self.isCollapsed,
-                  let frame = MenuBarItemScanner.frame(of: item.id),
+                  let frame,
                   Self.isInMenuBarStrip(frame),
                   self.isCurrentlyVisibleMenuBarItem(frame),
                   frame.insetBy(dx: -2, dy: -2).contains(point)
             else { return }
 
             if let identity = item.accessibilityIdentity {
-                guard MenuBarAccessibility.performPress(
-                    on: identity,
+                guard MenuBarAccessibility.matchesCurrentItem(
+                    identity,
                     expectedLabel: item.windowName,
                     expectedFrame: frame
                 ) else {
@@ -1373,12 +1406,13 @@ final class StatusBarController {
                     )
                     return
                 }
-            } else {
-                EventForwarder.click(
-                    at: point,
-                    eventUserData: MenuBarCommandDragMonitor.syntheticClickEventMarker
-                )
             }
+            // Hosted menu extras may acknowledge AXPress without opening their
+            // UI. Use the same validated primary-click path as proxy activation.
+            EventForwarder.click(
+                at: point,
+                eventUserData: MenuBarCommandDragMonitor.syntheticClickEventMarker
+            )
         }
     }
 
@@ -1504,6 +1538,7 @@ final class StatusBarController {
         _ item: MenuBarItemWindow,
         previewImage: NSImage?
     ) {
+        guard !preparingCollapse, activationTask == nil, promotionTask == nil else { return }
         let bundleIdentifier = item.bundleIdentifier
         guard !bundleIdentifier.isEmpty,
               bundleIdentifier != Bundle.main.bundleIdentifier else {
@@ -1514,8 +1549,9 @@ final class StatusBarController {
             return
         }
 
-        Task { @MainActor [weak self] in
+        promotionTask = Task { @MainActor [weak self] in
             guard let self else { return }
+            defer { self.promotionTask = nil }
             // The open-panel monitor already owns a fresh full inventory. Only
             // re-resolve the dragged AX identity here; another all-application
             // scan made a simple drop take several seconds on busy systems.
@@ -1568,6 +1604,7 @@ final class StatusBarController {
                 }
             }
 
+            guard !Task.isCancelled else { return }
             guard captured.count == liveItems.count else {
                 self.showAlert(
                     title: "无法读取真实图标",
@@ -1579,10 +1616,12 @@ final class StatusBarController {
             let updated = self.managedBundleIdentifiers.union([
                 bundleIdentifier
             ])
-            guard await self.visibilityRestriction.apply(
+            let applied = await self.visibilityRestriction.apply(
                 hiddenBundleIdentifiers: self.cachedPrivateBundleIdentifiers
                     .union([bundleIdentifier])
-            ) else {
+            )
+            guard !Task.isCancelled else { return }
+            guard applied else {
                 self.showAlert(
                     title: "图标没有收纳成功",
                     message: "macOS 27 的菜单栏服务没有接受 FoldBar 的独立收纳请求；真实图标保持可见。"
