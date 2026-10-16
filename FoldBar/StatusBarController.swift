@@ -47,8 +47,8 @@ final class StatusBarController {
     private var collapsedItemMonitorTask: Task<Void, Never>?
     private var automaticPlacementTask: Task<Void, Never>?
     private var externalDragItemID: CGWindowID?
-    private var importPreviewImages: [CGWindowID: NSImage] = [:]
-    private var importPreviewRequestedIDs: Set<CGWindowID> = []
+    private var importPreviewCache = MenuBarImportPreviewCache<NSImage>()
+    private var backgroundCaptureRetryPolicy = MenuBarCaptureRetryPolicy()
     private var cachedItems: [CapturedItem] = []
     private var cachedPrivateBundleIdentifiers: Set<String> {
         Set(cachedItems.map { $0.window.bundleIdentifier })
@@ -615,10 +615,18 @@ final class StatusBarController {
         }
         let reusableIDs = Set(reusable.map(\.id))
         let missing = liveItems.filter { !reusableIDs.contains($0.id) }
-        let newlyCaptured = await IconCapturer.capture(
-            Self.capturablePrivateItems(missing)
+        let retryable = backgroundCaptureRetryPolicy.retryableItems(
+            among: missing,
+            now: ProcessInfo.processInfo.systemUptime
         )
+        let attempted = Self.capturablePrivateItems(retryable)
+        let newlyCaptured = await IconCapturer.capture(attempted)
         guard !Task.isCancelled, isCollapsed, !panel.isVisible else { return }
+        backgroundCaptureRetryPolicy.recordResults(
+            for: attempted,
+            capturedIDs: Set(newlyCaptured.map(\.id)),
+            now: ProcessInfo.processInfo.systemUptime
+        )
         let candidate: [CapturedItem] = reusable + newlyCaptured
         let completeBundles = Self.completeCapturedBundles(
             among: liveItems,
@@ -1213,17 +1221,23 @@ final class StatusBarController {
         externalDragCaptureTask?.cancel()
         externalDragCaptureTask = nil
         externalDragItemID = nil
-        importPreviewImages = [:]
-        importPreviewRequestedIDs = []
+        importPreviewCache.reset()
+        // Closing or reopening the panel is an explicit opportunity to retry
+        // a previously unavailable real icon without changing managed state.
+        backgroundCaptureRetryPolicy.reset()
         menuBarImportMonitor.stop()
         setImportTargetingToggle(false)
     }
 
     private func prefetchImportPreviewImages(for candidates: [MenuBarItemWindow]) {
+        let candidateIDs = Set(candidates.map(\.id))
+        importPreviewCache.retain(
+            candidateIDs: candidateIDs,
+            activeDragItemID: externalDragItemID
+        )
         guard importPreviewPrefetchTask == nil else { return }
-        let missing = candidates.filter { !importPreviewRequestedIDs.contains($0.id) }
-        guard !missing.isEmpty else { return }
-        importPreviewRequestedIDs.formUnion(missing.map(\.id))
+        guard let request = importPreviewCache.request(for: candidateIDs) else { return }
+        let missing = candidates.filter { request.itemIDs.contains($0.id) }
 
         importPreviewPrefetchTask = Task { @MainActor [weak self] in
             let images = await IconCapturer.captureImages(
@@ -1231,8 +1245,14 @@ final class StatusBarController {
                 includeFallback: !MenuBarItemScanner.usesAccessibilityBackend,
                 diagnostics: true
             )
-            guard let self, !Task.isCancelled, self.panel.isVisible else { return }
-            self.importPreviewImages.merge(images) { _, fresh in fresh }
+            guard let self, !Task.isCancelled, self.panel.isVisible,
+                  self.importPreviewCache.generation == request.generation else { return }
+            self.importPreviewCache.merge(
+                images,
+                for: request,
+                candidateIDs: Set(self.currentImportCandidates().map(\.id)),
+                activeDragItemID: self.externalDragItemID
+            )
             self.importPreviewPrefetchTask = nil
         }
     }
@@ -1323,12 +1343,12 @@ final class StatusBarController {
         externalDragItemID = item.id
         setImportTargetingToggle(false)
         panel.beginExternalDrag(
-            image: importPreviewImages[item.id],
+            image: importPreviewCache[item.id],
             sourceFrame: item.frame,
             atQuartzPoint: point
         )
         Self.importLogger.notice(
-            "external drag preview ready=\(self.importPreviewImages[item.id] != nil, privacy: .public)"
+            "external drag preview ready=\(self.importPreviewCache[item.id] != nil, privacy: .public)"
         )
         externalDragCaptureTask?.cancel()
         externalDragCaptureTask = Task { @MainActor [weak self] in
@@ -1344,7 +1364,7 @@ final class StatusBarController {
                 Self.importLogger.notice("external drag screenshot unavailable")
                 return
             }
-            self.importPreviewImages[item.id] = image
+            self.importPreviewCache.store(image, for: item.id)
             self.panel.updateExternalDragImage(image)
             Self.importLogger.notice("external drag screenshot ready")
         }
@@ -1432,7 +1452,7 @@ final class StatusBarController {
         panel.endExternalDrag()
         setImportTargetingToggle(false)
         guard target != nil else { return }
-        let previewImage = importPreviewImages[item.id]
+        let previewImage = importPreviewCache[item.id]
 
         // Defer teardown until the event-tap callback has returned the consumed
         // mouse-up. Invalidating a tap from inside its own callback is fragile.
@@ -1549,6 +1569,7 @@ final class StatusBarController {
             return
         }
 
+        backgroundCaptureRetryPolicy.reset(bundleIdentifier: bundleIdentifier)
         promotionTask = Task { @MainActor [weak self] in
             guard let self else { return }
             defer { self.promotionTask = nil }
@@ -1792,7 +1813,7 @@ final class StatusBarController {
         return ids.map(CGDisplayBounds)
     }
 
-    private static func activeVisibleMenuBarSegments() -> [CGRect] {
+    static func activeVisibleMenuBarSegments() -> [CGRect] {
         NSScreen.screens.compactMap { screen in
             let screenNumberKey = NSDeviceDescriptionKey("NSScreenNumber")
             guard let number = screen.deviceDescription[screenNumberKey] as? NSNumber else {

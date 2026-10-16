@@ -34,6 +34,12 @@ targets:
         INFOPLIST_KEY_LSUIElement: true
         INFOPLIST_KEY_LSApplicationCategoryType: "public.app-category.utilities"
         INFOPLIST_KEY_NSHumanReadableCopyright: "FoldBar contributors. MenubarHide portions used under MIT."
+      configs:
+        Release:
+          DEAD_CODE_STRIPPING: "YES"
+          DEPLOYMENT_POSTPROCESSING: "YES"
+          STRIP_INSTALLED_PRODUCT: "YES"
+          STRIP_STYLE: "non-global"
 
   FoldBarTests:
     type: bundle.unit-test

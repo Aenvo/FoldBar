@@ -1,5 +1,99 @@
 # FoldBar build report
 
+## Screenshot memory and Release-size optimization — 2026-10-16
+
+The prior installed process accumulated 98.5 MiB of unreachable image objects.
+Logs showed one unavailable item retried in three-attempt batches every 5–6
+seconds. This is separate from the much smaller assessment-assertion ownership
+issue fixed in the preceding audit.
+
+Changes:
+
+- On macOS 26+, the region fallback uses `captureScreenshot(rect:configuration:)`
+  and `SCScreenshotOutput.sdrImage`, whose ownership is explicit. It requests
+  SDR, no cursor or file output, and native pixel dimensions. The old 15.2–25
+  region branch and legacy per-window path remain available. No speculative
+  manual Core Foundation release was added.
+- Only failed background captures back off, at 15/30/60/120/300 seconds with a
+  five-minute cap. Application-generation or frame changes, a panel session or
+  explicit import can retry. AX inventory and new-application visibility
+  reconciliation keep their existing cadence. A bundle still needs all real
+  images before it can be hidden; failed images remain fail-open.
+- Preview caches retain current candidates and active dragging only. Panel
+  generations reject late results and prefetch cannot overwrite a fresher drag
+  image. Eleven deterministic regression tests cover cooldown and cache lifetime.
+- Release enables dead-code stripping, deployment postprocessing, installed
+  product stripping and non-global symbol stripping. `-O`, whole-module builds,
+  both architectures, external dSYM output and signing identity are preserved.
+- An explicit, bounded `--capture-memory-probe legacy|current` diagnostic mode
+  performs at most 100 region captures of a live, validated visible AX item.
+  It bypasses the normal controller during the comparison and stores no pixels
+  or preferences. Normal launches do not enter the probe.
+
+Verification on macOS 27.0 (`26A428`) and Xcode 27.0 (`27A266a`):
+
+- All **121 Swift Testing tests in 11 suites passed**. The universal Release
+  build passed with no source warnings; only the existing skipped AppIntents
+  metadata warning remains. XcodeGen regenerated the tracked project.
+- Controlled comparison used two fresh processes of the same signed candidate,
+  the same AX item, and **100/100 successful captures at 44 x 44 pixels** in each
+  mode, with normal background captures disabled:
+
+  | After 100 captures | Legacy region API | Screenshot-output API |
+  | --- | ---: | ---: |
+  | CGImage objects | 112 | 12 |
+  | IOSurface objects | 100 | 0 |
+  | Reported leaked bytes | 684,880 | 14,400 |
+
+  The CGImage/CGDataProvider/IOSurface leak chain disappeared; total leaked bytes
+  fell **97.9%**. The remaining 14,400 bytes are small NSMutableDictionary leaks
+  with no established allocation origin, so this is not a zero-leak claim.
+- The app was then relaunched normally, without probe arguments, at the sole
+  installed `/Applications/FoldBar.app` path (PID 51002). Initial logs confirm
+  nine usable real-image captures. The first normal sample at 08:45:23 reported
+  21.58 MiB physical footprint, 33 CGImage objects, zero IOSurface objects and
+  2,160 leaked bytes of small dictionaries, with no CGImage leak root.
+  A second sample at 08:47:45 (142 seconds later) retained exactly the same
+  physical footprint, CGImage count (33), IOSurface count (0) and NSImage count
+  (16). Small dictionary leaks were 2,880 bytes, an increase of 720 bytes.
+  Log batches were spaced 16.156/31.928/63.590 seconds apart, confirming the
+  15/30/60-second cooldown stages including scan overhead. The 120/300-second
+  stages are covered by deterministic tests, not this short runtime interval.
+- Native UI inspection opened the installed panel and showed all nine proxies.
+  Its screenshot showed the expected grid and icon proportions. Escape closed
+  the panel; reopening showed the same nine proxies, then Escape closed it
+  again. No real membership change or third-party proxy click was performed.
+  The post-UI sample at 08:49:54 measured 28.44 MiB physical footprint,
+  41 CGImage objects, zero IOSurface objects, 16 NSImage objects and 4,608 bytes
+  of small dictionary leaks. The large image leak chain did not reappear.
+- Installed app size: **3,946,175 -> 2,778,655 bytes** (3.76 -> 2.65 MiB), a
+  **29.6% reduction** versus the prior installed copy. Executable size:
+  2,624,480 -> 1,456,960 bytes. Both `x86_64` and `arm64` remain present.
+- Candidate and installed app pass `codesign --verify --deep --strict` with the
+  same designated requirement, bundle `local.foldbar.app`, team `42MUMXKY79`,
+  version 0.2.0/build 2 and deployment target 14.0. Installed executable SHA-256:
+  `7dc88f4b16055f3a94b94a31e10d80a091658a5c80c0c8036a9116f5fabd0a02`.
+- The prior installed app was quit cleanly and preserved in the verified backup
+  `~/Library/Application Support/FoldBar/Backups/FoldBar-before-memory-optimization-2026-10-16-083631.zip`.
+  `unzip -t` passed; archive SHA-256:
+  `e836b34b07fd46eecb8719a60ab0a6745bf64e19d8185fa88328e086a86eadea`.
+- The matching universal dSYM was preserved outside the app in
+  `~/Library/Application Support/FoldBar/Symbols/FoldBar-0.2.0-build2-7dc88f4b.dSYM.zip`.
+  Its arm64/x86_64 UUIDs match the installed executable and `unzip -t` passed;
+  archive SHA-256:
+  `692e6b9f2627414458e2a3d8a0fff7f32c514068f222ea64e71e38bc490e6895`.
+
+Test hosts exited. Temporary Debug/Release Launch Services registrations were
+removed; the moved-old-app path had no registration (`-10814`). The inspected
+DerivedData and moved-old-app folders were deleted after preserving the verified
+rollback ZIP and dSYM.
+`git diff --check` passed. The original untracked `.codex-probe/` remains outside
+the change.
+
+No new claim is made for multi-day stability, macOS 14–26 runtime, physical
+multi-display or drag acceptance. No TCC reset or preference deletion occurred.
+The tracked historical distribution ZIP was not replaced by this optimization.
+
 ## Performance and compatibility audit — 2026-10-16
 
 Reviewed source at `2ee7b40` and fixed the following confirmed paths:

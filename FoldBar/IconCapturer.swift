@@ -270,8 +270,31 @@ enum IconCapturer {
     }
 
     @available(macOS 15.2, *)
-    private static func captureRegionImage(in frame: CGRect) async -> CGImage? {
-        await withCheckedContinuation { continuation in
+    static func captureRegionImage(
+        in frame: CGRect,
+        useLegacyAPI: Bool = false
+    ) async -> CGImage? {
+        if #available(macOS 26.0, *), !useLegacyAPI {
+            let configuration = SCScreenshotConfiguration()
+            configuration.dynamicRange = .sdr
+            configuration.showsCursor = false
+            configuration.fileURL = nil
+            // The rectangle is in global screen points. Leaving output size at
+            // its native default preserves the display's backing scale without
+            // treating point dimensions as pixels or cropping a second time.
+            return await withCheckedContinuation { continuation in
+                SCScreenshotManager.captureScreenshot(
+                    rect: frame,
+                    configuration: configuration
+                ) { output, _ in
+                    // SCScreenshotOutput owns this image through a strong
+                    // property. Keep its normal ARC lifetime; no CF ownership
+                    // is transferred by the old raw-image completion callback.
+                    continuation.resume(returning: output?.sdrImage)
+                }
+            }
+        }
+        return await withCheckedContinuation { continuation in
             SCScreenshotManager.captureImage(in: frame) { image, _ in
                 continuation.resume(returning: image)
             }

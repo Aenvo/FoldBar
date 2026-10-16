@@ -137,6 +137,16 @@ For runtime-affecting changes, verify on a notch-equipped Mac with several third
 
 Record what was actually observed. Do not convert an incomplete interactive pass into a claim that click forwarding, drag behavior, or privacy onboarding is fully proven.
 
+For controlled screenshot-memory checks on macOS 27, the signed installed app
+accepts `--capture-memory-probe legacy` or `--capture-memory-probe current`, with
+an optional `--capture-probe-item=<AX synthetic ID>`. This explicit mode uses only
+existing permissions and revalidated visible AX frames, performs at most 100
+region captures, and writes no pixels or preferences. It bypasses the ordinary
+controller so background captures and visibility assertions cannot contaminate
+the comparison. After profiling, quit it cleanly and relaunch the installed app
+without probe arguments to restore normal operation. Compare matching successful
+counts and pixel dimensions, and use no-content heap/leaks reports.
+
 ## Licensing and release boundaries
 
 FoldBar uses public AppKit, CoreGraphics, ScreenCaptureKit, Accessibility, and ServiceManagement APIs. On macOS 27 it also dynamically resolves MenuBarClientCore's private assessment-mode visibility assertion; this can change without compatibility guarantees and is not suitable for App Store distribution. It contains adapted MIT-licensed MenubarHide work covered by `THIRD_PARTY_NOTICES.md`. Ice may be studied for product behavior and public issue context, but no GPL-3.0 Ice source may be copied into this repository.
