@@ -1,95 +1,128 @@
-# FoldBar
+<p align="center">
+  <img src="docs/assets/foldbar-icon.png" alt="FoldBar 应用图标：深色背景上的白色向下折角" width="112" height="112">
+</p>
 
-一个面向刘海屏 Mac 的轻量菜单栏收纳原型。点击菜单栏里的网格按钮，会像 Windows 的托盘溢出一样弹出 5 列图标面板。
+<h1 align="center">FoldBar</h1>
 
-## 当前功能
+<p align="center">给拥挤的 Mac 菜单栏，留一点空间。</p>
 
-- macOS 14–26 继续沿用 FoldBar 分隔符：收起时把分隔符左侧的真实菜单栏项停放到屏幕外，退出前恢复。
-- macOS 27 及以上动态使用 MenuBarClientCore 的私有 `MBAssessmentModeAssertion` 可见性配置，维护 FoldBar 自己的收纳列表。系统 `«` 保持独立，FoldBar 不再点击它、不把它当作收纳目标，也不会为它预留空位。
-- macOS 27 收起期间会识别后来启动或重启的未收纳菜单栏应用，短暂刷新 assessment 会话，让真实图标在一个监控周期内恢复到菜单栏，而不是落到真实菜单栏与 FoldBar 面板之外。
-- macOS 27 后台优先检查已知菜单栏应用和新进程，不再每轮遍历所有应用；每 30 秒到期后进行一次全量兜底检查。已经运行的应用后来首次启用菜单栏图标时，会在下一次兜底检查后的监控周期刷新。收纳列表为空时停止后台扫描；打开面板后重新读取清单，完成后才启用菜单栏导入。
-- macOS 27 的私有接口按应用的 bundle identifier 生效：同一应用如果提供多个菜单栏项，会一起收纳或移出，无法只处理其中一个。
-- macOS 27 不再注册旧版分隔项，避免零长度 `NSSceneStatusItem` 仍留下系统宿主空槽。
-- 没有收纳图标时不显示额外的空状态文案，而是让虚线拖放区填满标题下方空间，作为更大的菜单栏图标收纳目标。
-- 悬浮面板使用更醒目的单行“FoldBar”标题，五列正方形图标格与加高的“保持可见”拖放区左右对齐，并统一使用 16pt 四周留白；开始拖动时，图标预览与面板图标格使用相同尺寸和样式，不增加蓝色高亮；拖放区显示浅蓝背景和蓝色边框，进入拖放区后只加深蓝色背景而不改变文案，松手或取消拖动后会清除提示状态。
-- “设置”可在浅色模式、暗色模式和高透明 Liquid Glass 之间切换，也可开启“直接拖动菜单栏图标（无需 Command）”；该开关默认关闭，修改后对下一次拖动立即生效。浅色模式使用透明度更低的背景板，高透明模式增强图标格模糊，各模式会分别维持图标与文字对比度。原生 Liquid Glass 需要 macOS 26，较低系统自动回退到浅色模式。
-- “设置 › 语言”支持跟随系统、简体中文和 English，选择会自动保存并立即生效。设置、面板、右键菜单、权限说明、关于信息和操作失败提示均支持中英文，包括 macOS 14–26 的旧版分隔符与 ⌘-拖动路径。
-- 点击面板中的代理图标时，FoldBar 会重新验证真实的可访问元素与实时位置。macOS 27 会先临时显示该应用的菜单栏项，等待系统宿主进入可交互状态，再转发与用户左键点击等价的鼠标事件；点击后恢复 FoldBar 收纳，身份或几何不能确认时失败关闭。
-- 将鼠标停在面板图标格上时，优先显示真实状态项提供的原生 hover 帮助或可访问名称；macOS 统一托管窗口所显示的“控制中心”不再被当作各图标的名称。
-- 打开面板后，可以按住 ⌘ 从菜单栏拖动一个可见图标；开启“直接拖动菜单栏图标”后，也可以不按修饰键直接拖动。macOS 27 在松手时直接更新 FoldBar 的私有可见性断言，不再慢速地模拟第二次 ⌘-拖动。macOS 14–26 仍使用原有分隔符内部拖动路径。
-- 开启直接拖动时，FoldBar 在面板打开期间先暂缓候选图标的按下事件；移动达到 5pt 后按拖动处理，原地单击在松手后执行。快速拖动即使没有中间移动事件，也不会回放为点击。
-- 菜单栏拖动使用真实图标截图，预览框、图标大小、圆角和外观与面板图标格一致，外部预览不叠加窗口阴影，并跟随鼠标；面板打开后预先准备截图，晚到的截图仍显示在鼠标当前位置。松手或取消后清除预览。
-- 把面板图标拖到“保持可见”区域时，macOS 27 会从 FoldBar 列表删除该应用；14–26 继续使用经过边界检查的 ⌘-拖动。
-- 代理图标在收纳前采集并仅保存于内存，保留原始宽高比、视觉大小和居中位置。打开面板不会展开系统 `«`；第二次点击 FoldBar 箭头会关闭面板。
-- macOS 27 提取图标时会去除菜单栏壁纸底色，包括抗锯齿边缘；真正的彩色图标保留颜色和透明度，单色图标继续使用保留灰度细节、随面板主题着色的模板。若未能取得真实菜单栏截图，或截图位置有偏移、图案不完整，FoldBar 不会以形状可能不同的应用图标代替并隐藏该应用；仍可见的项目可以再次拖入面板，收纳前会重新采集真实图标。
-- macOS 27 对持续读取失败的图标逐级降低后台截图重试频率，最长间隔五分钟；应用重启、位置变化、重新打开面板或主动拖入时可重新尝试。失败期间真实图标保持可见，新应用识别继续运行。
-- 后台每轮只尝试采集一次，启动和用户主动导入保留原重试策略。macOS 14–26 的后台窗口清单检查间隔为 1.5 秒；面板打开时每 0.5 秒检查候选，点击和拖动前仍重新读取实时位置。
-- 拖动预览缓存只保留当前候选和正在拖动的图标，面板关闭时释放。
-- 保留图标原始宽高比；文字、温度和电量等宽图标会自动占 2–3 格。
-- 上下排列的多显示器按完整屏幕边界定位面板；旧版分隔符路径按所在菜单栏的纵向区域识别收纳项，避免混入另一屏的图标。
-- 自动保存有效的 `NSStatusItem Preferred Position`，降低 macOS 26 把图标永久停在屏幕外的风险。
-- macOS 14–26 退出前总会展开分隔符；macOS 27 退出或连接中断时会释放可见性断言，真实图标自动恢复。
-- 可选择登录时启动。
+<p align="center">
+  <a href="README.md">简体中文</a> · <a href="README.en.md">English</a>
+</p>
 
-## 界面语言 / Interface language
+FoldBar 是一个原生 macOS 菜单栏收纳工具，面向菜单栏空间不足、尤其是使用刘海屏 Mac 的用户。把暂时不用的图标收进浮动面板，需要时点击菜单栏中的 FoldBar 箭头即可访问。
 
-点击面板右上角的齿轮，或右键点击 FoldBar 箭头进入“设置”，在“语言”中切换。默认跟随系统的首个受支持语言；没有中文或英文偏好时使用英文。切换无需重新启动，也不会展开菜单栏或重新截图。
+**v0.2.0 开发预览 · macOS 14+ · Apple Silicon / Intel · MIT**
 
-Open **Settings › Language** using the panel's gear button or the FoldBar arrow's context menu. Choose **Follow System**, **简体中文**, or **English**. The choice is saved and applies immediately on macOS 14 and later, including the legacy menu bar controls on macOS 14–26.
+[下载 ZIP](dist/FoldBar-0.2.0-macOS.zip) · [SHA-256 校验和](dist/SHA256SUMS.txt) · [构建清单](dist/release-manifest.json) · [版本说明](dist/RELEASE_NOTES.md)
 
-FoldBar 自己的界面遵循此选择；macOS 权限弹窗和系统设置仍由系统控制，其他应用提供的图标名称和原生悬停提示保留原文。
+当前构建包使用 Apple Development 签名，未进行 Developer ID 签名、Apple 公证或装订，本机 Gatekeeper 评估未通过。它是供验证使用的开发预览，尚未完成干净 Mac 安装验收；需要自行签名时可从[源码构建](#构建与开发)。
 
-## 菜单栏图标如何进出面板
+## 主要功能
 
-macOS 没有公开 API 可以把另一个应用的 `NSStatusItem` 直接放进自定义面板。面板里显示的仍是代理图标，真实图标由 macOS 管理。两条系统路径分开实现：
+- **收进面板，按需访问**：五列图标面板保留菜单栏顺序；点击截图代理时重新定位真实图标并转发操作。
+- **拖入收纳，拖出常驻**：面板打开时可按住 ⌘ 拖入菜单栏图标；拖到“保持可见”区域可让图标返回菜单栏。
+- **保留图标原貌**：使用真实菜单栏图标截图，保持宽高比，文字、电量等宽图标可占多格。
+- **中英文即时切换**：跟随系统、简体中文或 English，覆盖设置、菜单、权限说明和旧版系统操作提示。
+- **按喜好调整**：浅色、暗色与 Liquid Glass 外观；可选免 ⌘ 直接拖动和登录时启动。
+- **减少闲时工作**：macOS 27 收纳列表为空时停止后台扫描；截图失败会逐级延长重试间隔。
 
-- macOS 14–26：使用已有分隔符与经过几何检查的 ⌘-拖动；
-- macOS 27+：动态创建 MenuBarClientCore 的私有 assessment-mode 断言，向系统提交“允许可见的应用”列表。更新时先激活新断言、再释放旧断言，避免所有图标瞬间闪现；
-- 如果私有服务、可访问身份或目标几何无法确认，操作会失败开放（fail-open）：不持久化新收纳项，真实图标保持可见。
+## 快速开始
 
-这不是把图标“复制”进面板。私有接口可能随系统更新变化，也不适用于 Mac App Store 发布。
+1. 下载 `FoldBar-0.2.0-macOS.zip` 和同一交付中的 `SHA256SUMS.txt`，在下载目录校验：
 
-## 权限
+   ```bash
+   shasum -a 256 FoldBar-0.2.0-macOS.zip
+   ```
 
-- **屏幕录制**：用于采集真实菜单栏图标和拖动预览；图片仅保存在内存中。
-- **辅助功能**：读取菜单栏可访问元素、识别用户主动发起的拖动，并在点击代理图标时重新验证目标。
+   将结果与 `SHA256SUMS.txt` 中同名文件的摘要比较。
+2. 解压，退出旧版 FoldBar，把 `FoldBar.app` 拖入“应用程序”，作为 `/Applications/FoldBar.app` 打开。包内附有中英文 `INSTALL.txt` 与许可证。此开发签名包可能被系统阻止，说明见 Apple 的[安全打开应用指南](https://support.apple.com/en-us/102445)。
+3. 根据应用说明，分别授予**屏幕录制**与**辅助功能**权限。首次授予屏幕录制权限后，可能需要重新启动 FoldBar。
+4. 点击菜单栏中的 FoldBar 箭头打开面板，按住 ⌘ 将可见菜单栏图标拖入虚线区域。
+5. 点击面板中的图标访问对应应用；想让图标常驻菜单栏时，将其拖到“保持可见”区域。
 
-FoldBar 会用一次说明操作请求两项权限，系统仍会分别显示两个确认；FoldBar 不会在每次点击时重复触发请求。
+| 操作 | 方法 |
+| --- | --- |
+| 打开或关闭面板 | 点击 FoldBar 箭头；Escape 或点击面板外也可关闭 |
+| 收纳图标 | 打开面板，按住 ⌘ 从菜单栏拖入虚线区域 |
+| 保持图标可见 | 将面板图标拖到“保持可见”区域 |
+| 设置外观或拖动方式 | 点击面板齿轮，或右键点击 FoldBar 箭头进入“设置” |
+| 切换界面语言 | 设置 › 语言；保存后立即生效，无需重启 |
+| 登录时启动 | 右键点击 FoldBar 箭头，切换“登录时启动” |
 
-首次授予屏幕录制权限后，系统可能要求重新启动应用。Debug 与正式签名之间切换也可能导致系统重新询问权限。
+“直接拖动菜单栏图标”默认关闭，启用后可在面板打开期间免按 ⌘ 拖动。macOS 27 首次打开面板时会先刷新菜单栏清单，完成后才能导入图标。
 
-## 构建
+## 兼容性与限制
 
-运行要求 macOS 14+；从当前源码构建要求 Xcode 26+、XcodeGen，因为面板引用了 macOS 26 SDK 的 Liquid Glass API，较低系统会在运行时回退。
+部署目标为 macOS 14.0，最近的 Release 构建包含 `arm64` 和 `x86_64`。当前版本在 macOS 27 上完成了构建与短时运行检查；macOS 14–26 的最新实机交互验收仍待完成。
 
-开发或验证 macOS 27 的系统级兼容性时应使用 Xcode 27 / macOS 27 SDK。
+| 系统 | 收纳方式 | 外观 |
+| --- | --- | --- |
+| macOS 14–25 | FoldBar 分隔符与经过坐标检查的 ⌘-拖动 | 浅色、暗色；Liquid Glass 回退为浅色 |
+| macOS 26 | 沿用分隔符路径 | 浅色、暗色、Liquid Glass |
+| macOS 27+ | FoldBar 自己的应用收纳列表与私有可见性断言 | 浅色、暗色、Liquid Glass |
+
+- **macOS 27 按应用收纳**：同一应用的多个菜单栏项会一起收纳或移出，无法单独管理。系统 `«` 独立于 FoldBar，FoldBar 不会点击它或将它作为收纳边界。
+- **面板显示截图代理**：第三方真实菜单栏项仍由 macOS 管理，面板不承载其他应用的原生视图。
+- **无法确认目标时保留真实图标**：身份、截图或私有服务验证失败时，不隐藏新收纳的应用；正常退出会恢复真实菜单栏项。
+- **私有接口有兼容性风险**：macOS 27 路径动态调用 MenuBarClientCore 的 `MBAssessmentModeAssertion`，可能随系统更新失效，不适合 Mac App Store 分发。
+- **长期稳定性仍需验证**：系统截图 API 仍有少量泄漏报告，多显示器与真实点击、拖动也需要持续实机验证。
+
+## 权限与数据
+
+| 项目 | 用途 |
+| --- | --- |
+| 屏幕录制 | 获取单个菜单栏图标窗口或经验证区域的截图，供面板和拖动预览使用；图片保存在内存中 |
+| 辅助功能 | 识别菜单栏项、读取原生提示和实时位置，并处理用户发起的点击与拖动 |
+| 本地偏好 | 保存界面语言、外观、拖动选项、应用收纳列表及有效的菜单栏位置备份 |
+
+两项权限由 macOS 分别管理。完成首次请求后，后续权限操作会引导至系统设置；如果图标截图仍不可用，请检查授权并重新启动 FoldBar。更换构建或签名身份可能导致系统重新请求授权。
+
+FoldBar 自己的界面遵循所选语言；系统权限弹窗仍使用系统语言，第三方图标名称和原生提示保留原文。
+
+## 构建与开发
+
+需要 **Xcode 26+** 和 [XcodeGen](https://github.com/yonaskolb/XcodeGen)。当前源码引用 macOS 26 SDK 的 Liquid Glass API；验证 macOS 27 路径时使用 **Xcode 27 / macOS 27 SDK**。
 
 ```bash
+git clone https://github.com/Aenvo/FoldBar.git
 cd FoldBar
-xcodegen
-xcodebuild -project FoldBar.xcodeproj \
-  -scheme FoldBar \
-  -configuration Debug build
 ```
 
-测试：
+`project.yml` 是工程配置来源。签名默认指向维护者的开发团队；外部贡献者需要先在本地配置中选择自己的可用开发团队，再生成工程。
 
 ```bash
-xcodebuild -project FoldBar.xcodeproj \
-  -scheme FoldBar \
-  -destination 'platform=macOS' test
+xcodegen generate
+open FoldBar.xcodeproj
 ```
 
-工程已绑定当前开发团队，普通 Xcode 构建会使用同一 Apple Development 身份，避免因临时签名变化而反复丢失本机权限。公开分发仍需 Developer ID 签名和 Apple 公证。
+在 Xcode 中选择 `FoldBar` scheme 和本机 Mac。命令行测试与 Release 构建可共用一个独立临时 DerivedData 目录：
 
-安装或交付时使用 Release 配置。Release 会移除无用代码和非全局符号，保留双架构与应用外的 dSYM 调试信息。
+```bash
+foldbar_derived="$(mktemp -d /private/tmp/foldbar-derived.XXXXXX)"
 
-本机开发诊断可使用 `--inventory-performance-probe`：它在同一进程中比较十组全量与定向辅助功能扫描，只输出调用数量和耗时，不截图、不写偏好、不建立可见性断言，且仅使用现有辅助功能授权。先退出常规实例，再从已签名的安装路径启动；诊断完成后退出并正常重新打开 FoldBar，恢复收纳功能。
+xcodebuild \
+  -project FoldBar.xcodeproj \
+  -scheme FoldBar \
+  -destination 'platform=macOS' \
+  -derivedDataPath "$foldbar_derived" \
+  test
 
-## 技术与许可证边界
+xcodebuild \
+  -project FoldBar.xcodeproj \
+  -scheme FoldBar \
+  -configuration Release \
+  -destination 'platform=macOS' \
+  -derivedDataPath "$foldbar_derived" \
+  build
+```
 
-本项目使用 AppKit、CoreGraphics、ScreenCaptureKit、Accessibility 和 ServiceManagement API。macOS 27 路径另外动态调用 MenuBarClientCore 的私有 assessment-mode 可见性断言，并与 14–26 的公开 API 实现隔离。
+Release 应用位于 `$foldbar_derived/Build/Products/Release/FoldBar.app`。安装前退出旧版本，日常运行只保留一份已安装应用；不要把 Debug 测试宿主作为安装版本使用。验证结束后，先退出测试宿主并取消临时应用的 Launch Services 注册，再移除自己创建的临时目录。
 
-实现参考并改编了 MIT 许可的 [MenubarHide](https://github.com/junior-rj/menubar-hide)，并保留其许可证。只研究了 Ice 的产品思路和公开问题；**没有复制 Ice 的 GPL-3.0 源码**。
+已有的构建与实机观察记录见 [BUILD_REPORT.md](BUILD_REPORT.md)。构建成功和单元测试通过不能替代真实菜单栏上的点击、拖动与权限验收。
 
-详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+## 许可证与致谢
+
+FoldBar 使用 [MIT 许可证](LICENSE)。部分实现改编自 MIT 许可的 [MenubarHide](https://github.com/junior-rj/menubar-hide)，并保留其版权声明。
+
+Hidden Bar 作为分隔符方案的参考；Ice 仅用于了解产品行为与公开问题，未复制其 GPL-3.0 源码。完整来源与许可边界见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

@@ -1,5 +1,44 @@
 # FoldBar build report
 
+## Release package candidate — 2026-10-18
+
+Prepared a fresh **0.2.0 / build 2 developer-preview** package from application
+source at `beb5f024729b37052b53c86e662ffe2161b5bb33`. No application source, signing
+team, bundle identity or deployment target changed. The installed application
+was not replaced or launched from a build directory.
+
+- Xcode 27.1 (`27A9275`): **142 tests in 14 suites passed**; a fresh universal
+  **arm64 / x86_64 Release** build passed without Swift source warnings.
+  Existing skipped AppIntents metadata warnings remain.
+- Bundle: `local.foldbar.app`; minimum macOS **14.0**; Apple Development signing,
+  team `42MUMXKY79`. Strict signature verification passed before packaging and
+  again after ZIP extraction. No personal build-home path was found in the
+  stripped executable's strings.
+- `dist/FoldBar-0.2.0-macOS.zip`: **1,991,230 bytes**; SHA-256
+  `c3cd05f1e810dec0645b805f303b3700ebcfa768d2582e7a771328deedc21acb`.
+  The archive contains the app, bilingual `INSTALL.txt`, `LICENSE`, and
+  `THIRD_PARTY_NOTICES.md`; no dSYM, test products or AppleDouble metadata.
+  ZIP CRC checks and extracted executable equality passed.
+- `dist/release-manifest.json` records source revision, architectures, signing
+  status and validation limits. `dist/SHA256SUMS.txt` covers the ZIP and manifest.
+  `dist/RELEASE_NOTES.md` provides matching Chinese and English preview notes.
+- Gitleaks **8.30.1**, default rules, redacted reports: the current directory and
+  all reachable Git history both completed with zero findings. This does not
+  establish a complete security or publication-privacy audit.
+- **Gatekeeper assessment rejected the app** (exit 3). No Developer ID identity
+  is available locally, and no notarization or stapling was performed. Structural
+  signature success is not acceptance for unrestricted distribution.
+- Clean-Mac installation, updated macOS 14–26 runtime, multi-display and final
+  package click/drag acceptance remain pending. Prior short runtime and memory
+  observations are not new package-level interactive acceptance.
+- Matching universal dSYM UUIDs were verified and symbols retained outside the
+  app/archive. Temporary app registrations and inspected DerivedData/package
+  verification directories were removed. The existing installed app is unchanged.
+
+At this checkpoint no tag, GitHub Release, topic update or repository visibility
+change has been applied. The candidate package and bilingual README use valid
+repository-relative download links without claiming a published Release exists.
+
 ## Background inventory and capture optimization — 2026-10-18
 
 Implemented and installed, preserving the existing language changes:
