@@ -70,17 +70,18 @@ private final class ExpandedMenuBarWindow: NSPanel {
 
 private final class ExpandedMenuBarButton: NSButton {
     private let handler: () -> Void
+    private let item: CapturedItem
 
     init(item: CapturedItem, frame: CGRect, handler: @escaping () -> Void) {
         self.handler = handler
+        self.item = item
         super.init(frame: frame)
         image = item.image
         imagePosition = .imageOnly
         imageScaling = .scaleProportionallyDown
         isBordered = false
         bezelStyle = .regularSquare
-        toolTip = item.hoverText
-        setAccessibilityLabel(item.hoverText)
+        refreshLocalizedText()
         target = self
         action = #selector(pressed)
     }
@@ -93,6 +94,11 @@ private final class ExpandedMenuBarButton: NSButton {
     @objc private func pressed() {
         handler()
     }
+
+    func refreshLocalizedText() {
+        toolTip = item.hoverText
+        setAccessibilityLabel(item.hoverText)
+    }
 }
 
 /// Displays captured menu-item proxies directly in the usable menu-bar strip.
@@ -102,6 +108,7 @@ private final class ExpandedMenuBarButton: NSButton {
 @MainActor
 final class ExpandedMenuBarPanel {
     private var panel: NSPanel?
+    private var buttons: [ExpandedMenuBarButton] = []
     private var monitors: [Any] = []
     private var onDismiss: (@MainActor () -> Void)?
     private var anchorFrame = CGRect.zero
@@ -174,6 +181,7 @@ final class ExpandedMenuBarPanel {
                 onClick(item)
             }
             document.addSubview(button)
+            buttons.append(button)
             x += width
         }
         scrollView.documentView = document
@@ -203,12 +211,17 @@ final class ExpandedMenuBarPanel {
 
     func close() {
         removeMonitors()
+        buttons.removeAll()
         panel?.orderOut(nil)
         panel = nil
         anchorFrame = .zero
         let callback = onDismiss
         onDismiss = nil
         callback?()
+    }
+
+    func refreshLocalizedText() {
+        buttons.forEach { $0.refreshLocalizedText() }
     }
 
     private func removeMonitors() {

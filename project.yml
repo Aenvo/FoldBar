@@ -6,6 +6,7 @@ options:
   xcodeVersion: "26.0"
   createIntermediateGroups: true
   defaultConfig: Debug
+  developmentLanguage: en
 
 settings:
   base:

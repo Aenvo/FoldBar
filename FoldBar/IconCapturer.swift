@@ -30,7 +30,8 @@ enum IconCapturer {
 
     static func capture(
         _ windows: [MenuBarItemWindow],
-        allowAccessibilityRegionCapture: Bool = true
+        allowAccessibilityRegionCapture: Bool = true,
+        maximumAttempts: Int = 3
     ) async -> [CapturedItem] {
         // macOS 27 callers validate the visible frame before reaching here and
         // capture before the private assertion hides its owning bundle.
@@ -38,7 +39,8 @@ enum IconCapturer {
             windows,
             allowAccessibilityRegionCapture: allowAccessibilityRegionCapture,
             includeFallback: !MenuBarItemScanner.usesAccessibilityBackend,
-            diagnostics: true
+            diagnostics: true,
+            maximumAttempts: maximumAttempts
         )
         let resolvedMetadata: [CGWindowID: MenuBarItemAccessibilityMetadata]
         if windows.allSatisfy({ $0.accessibilityIdentity != nil }) {
@@ -78,8 +80,10 @@ enum IconCapturer {
         _ windows: [MenuBarItemWindow],
         allowAccessibilityRegionCapture: Bool = true,
         includeFallback: Bool = false,
-        diagnostics: Bool = false
+        diagnostics: Bool = false,
+        maximumAttempts: Int = 3
     ) async -> [CGWindowID: NSImage] {
+        precondition((1...3).contains(maximumAttempts))
         guard !Task.isCancelled else { return [:] }
         let needsWindowCapture = windows.contains {
             $0.nativeWindowID != nil
@@ -129,7 +133,7 @@ enum IconCapturer {
                         displays: content?.displays.map { CGDisplayBounds($0.displayID) } ?? [],
                         neighbours: windows.filter { $0.id != window.id }.map(\.frame)
                     )
-                    for attempt in 0..<3 where result[window.id] == nil {
+                    for attempt in 0..<maximumAttempts where result[window.id] == nil {
                         guard !Task.isCancelled else { return result }
                         if attempt > 0 {
                             guard (try? await Task.sleep(for: .milliseconds(70))) != nil,

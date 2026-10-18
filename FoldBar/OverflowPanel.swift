@@ -509,6 +509,8 @@ enum OverflowIconCellLayout {
 }
 
 private struct OverflowPanelView: View {
+    @AppStorage(AppLanguage.defaultsKey)
+    private var storedLanguage = AppLanguage.system.rawValue
     let items: [CapturedItem]
     @ObservedObject var dragState: OverflowDragState
     let onClick: (CapturedItem) -> Void
@@ -577,6 +579,7 @@ private struct OverflowPanelView: View {
     var body: some View {
         styledPanel
             .preferredColorScheme(usesDarkForeground ? .dark : nil)
+            .environment(\.locale, AppLanguage.decode(storedLanguage).locale)
     }
 
     private var panelContent: some View {
@@ -585,10 +588,10 @@ private struct OverflowPanelView: View {
                 Text("FoldBar")
                     .font(.system(size: 17, weight: .semibold))
                 Spacer()
-                Button("设置", systemImage: "gearshape", action: onSettings)
+                Button(L10n.text(.settings), systemImage: "gearshape", action: onSettings)
                     .labelStyle(.iconOnly)
                     .buttonStyle(.borderless)
-                    .help("设置面板外观和菜单栏拖动方式")
+                    .help(L10n.text(.settingsHelp))
             }
             .padding(.bottom, 4)
 
@@ -693,11 +696,11 @@ private struct OverflowPanelView: View {
 
     private var dropZoneTitle: String {
         guard dragState.isDraggingExternalItem else {
-            return "拖到这里：在菜单栏中保持可见"
+            return L10n.text(.keepVisibleDrop)
         }
         return dragState.isExternalItemInsidePanel
-            ? "松手：收进 FoldBar"
-            : "拖进面板：收进 FoldBar"
+            ? L10n.text(.collectRelease)
+            : L10n.text(.collectDrop)
     }
 
     private func iconCell(_ entry: OverflowGridCell) -> some View {
@@ -711,6 +714,7 @@ private struct OverflowPanelView: View {
         }
         .buttonStyle(.plain)
         .help(item.hoverText)
+        .accessibilityLabel(item.hoverText)
         .onDrag {
             dragState.beginDragging()
             return NSItemProvider(object: String(item.id) as NSString)

@@ -8,7 +8,9 @@ final class StatusBarController {
     private static let initialStablePolls = 3
     private static let initialMaxPolls = 45
     private static var collapsedItemPollMilliseconds: Int {
-        MenuBarItemScanner.usesAccessibilityBackend ? 5_000 : 600
+        MenuBarPollingPolicy.collapsedIntervalMilliseconds(
+            usesAccessibilityBackend: MenuBarItemScanner.usesAccessibilityBackend
+        )
     }
     private static let maximumAutomaticPlacementBatch = 2
     private static let automaticPlacementStabilizationMilliseconds = 10_000
@@ -131,6 +133,10 @@ final class StatusBarController {
             separatorItem.button?.alphaValue = 0
         } else {
             NSStatusBar.system.removeStatusItem(separatorItem)
+        }
+        settingsPanel.onLanguageChange = { [weak self] in
+            self?.updateToggleIcon()
+            self?.expandedMenuBarPanel.refreshLocalizedText()
         }
         updateToggleIcon()
         scheduleInitialCollapse()
@@ -414,7 +420,7 @@ final class StatusBarController {
             // cannot shift underneath the fixed drop-target geometry.
             button.image = symbol("chevron.down")
             button.contentTintColor = .controlAccentColor
-            button.toolTip = "松手以收进 FoldBar"
+            button.toolTip = L10n.text(.collectTooltip)
             return
         }
 
@@ -537,8 +543,8 @@ final class StatusBarController {
             updateToggleIcon()
         } else {
             showAlert(
-                title: "无法展开菜单栏代理",
-                message: "FoldBar 箭头左侧没有可安全使用的菜单栏空间。你仍可在溢出面板中操作这些图标。"
+                title: L10n.text(.expandUnavailableTitle),
+                message: L10n.text(.expandUnavailableMessage)
             )
         }
     }
@@ -547,7 +553,11 @@ final class StatusBarController {
 
     private func armCollapsedItemMonitor() {
         disarmCollapsedItemMonitor()
-        guard isCollapsed else { return }
+        guard isCollapsed,
+              MenuBarPollingPolicy.shouldMonitorCollapsedItems(
+                usesAccessibilityBackend: MenuBarItemScanner.usesAccessibilityBackend,
+                hasManagedApplications: !managedBundleIdentifiers.isEmpty
+              ) else { return }
 
         collapsedItemMonitorTask = Task { @MainActor [weak self] in
             while let self, self.isCollapsed, !Task.isCancelled {
@@ -567,7 +577,7 @@ final class StatusBarController {
                     // only a denylist. Reconcile it while collapsed so a newly
                     // launched, un-managed status item is admitted instead of
                     // being parked outside both the real menu bar and FoldBar.
-                    await MenuBarItemScanner.refreshStatusWindows(force: true)
+                    await MenuBarItemScanner.refreshStatusWindows()
                     await self.reconcilePrivateManagedImages()
                     continue
                 }
@@ -620,7 +630,9 @@ final class StatusBarController {
             now: ProcessInfo.processInfo.systemUptime
         )
         let attempted = Self.capturablePrivateItems(retryable)
-        let newlyCaptured = await IconCapturer.capture(attempted)
+        // Background recovery already has a per-item cooldown. One attempt
+        // avoids a three-shot burst; explicit imports/startup keep their retries.
+        let newlyCaptured = await IconCapturer.capture(attempted, maximumAttempts: 1)
         guard !Task.isCancelled, isCollapsed, !panel.isVisible else { return }
         backgroundCaptureRetryPolicy.recordResults(
             for: attempted,
@@ -803,8 +815,8 @@ final class StatusBarController {
         guard !Task.isCancelled else { return }
         guard applied else {
             showAlert(
-                title: "图标暂时无法点击",
-                message: "macOS 27 没有接受这次临时显示请求。FoldBar 已保持原收纳状态。"
+                title: L10n.text(.clickUnavailableTitle),
+                message: L10n.text(.privateRevealFailed)
             )
             return
         }
@@ -853,8 +865,8 @@ final class StatusBarController {
             isCollapsed = true
             updateToggleIcon()
             showAlert(
-                title: "图标暂时无法点击",
-                message: "真实菜单栏图标没有在可点击区域稳定出现。FoldBar 已恢复收纳，没有点击其他程序。"
+                title: L10n.text(.clickUnavailableTitle),
+                message: L10n.text(.liveIconUnavailable)
             )
             return
         }
@@ -900,8 +912,8 @@ final class StatusBarController {
                 visibleSegments: visibleSegments
               ) else {
             showAlert(
-                title: "图标暂时无法点击",
-                message: "为刘海腾出空间后，这个真实图标仍未完整进入可点击区域。菜单栏已保持展开，请直接操作它。"
+                title: L10n.text(.clickUnavailableTitle),
+                message: L10n.text(.legacyClickUnavailable)
             )
             armAutoCollapse()
             return
@@ -924,8 +936,8 @@ final class StatusBarController {
                 expectedFrame: frame
             ) else {
                 showAlert(
-                    title: "图标暂时无法点击",
-                    message: "macOS 更新了这个菜单栏图标的身份或位置。为避免点错应用，FoldBar 已停止操作并保持菜单栏展开。"
+                    title: L10n.text(.clickUnavailableTitle),
+                    message: L10n.text(.clickIdentityChanged)
                 )
                 armAutoCollapse()
                 return
@@ -999,11 +1011,12 @@ final class StatusBarController {
                 self.updateToggleIcon()
             } else {
                 self.showAlert(
-                    title: "无法移出这个应用",
-                    message: "macOS 27 没有接受可见性更新。FoldBar 已保留原收纳状态。"
+                    title: L10n.text(.removeAppFailedTitle),
+                    message: L10n.text(.privateUpdateFailed)
                 )
             }
             self.promotionTask = nil
+            self.armCollapsedItemMonitor()
         }
     }
 
@@ -1113,8 +1126,8 @@ final class StatusBarController {
             )
             if reportsFailure {
                 showAlert(
-                    title: "图标身份已经变化",
-                    message: "macOS 在操作前更新了这个菜单栏图标。为避免移动错误的项目，FoldBar 已停止操作并保持菜单栏展开。"
+                    title: L10n.text(.identityChangedTitle),
+                    message: L10n.text(.moveIdentityChanged)
                 )
             }
             return false
@@ -1147,8 +1160,8 @@ final class StatusBarController {
             guard !Task.isCancelled else { return false }
             if reportsFailure {
                 showAlert(
-                    title: "图标没有移动成功",
-                    message: "macOS 没有把这个图标放到 FoldBar 箭头左侧。菜单栏已保持展开，请按住 ⌘ 将它拖到箭头左侧并紧靠箭头。"
+                    title: L10n.text(.moveFailedTitle),
+                    message: L10n.text(.legacyMoveFailed)
                 )
             }
             return false
@@ -1161,8 +1174,8 @@ final class StatusBarController {
 
     private func showPromotionUnavailableAlert() {
         showAlert(
-            title: "无法移动这个图标",
-            message: "为刘海腾出空间后，真实图标仍没有进入可拖动的菜单栏区域。菜单栏已保持展开，请手动按住 ⌘ 拖动。"
+            title: L10n.text(.moveUnavailableTitle),
+            message: L10n.text(.legacyMoveUnavailable)
         )
     }
 
@@ -1184,7 +1197,11 @@ final class StatusBarController {
             fromAppKit: toggleFrame,
             mainDisplayBounds: mainDisplayBounds
         )
-        let candidates = currentImportCandidates()
+        // A private empty collection can remain idle without an AX scan for
+        // hours. Never publish those old coordinates to the input tap. The
+        // first explicit panel refresh below supplies its allowed candidates.
+        let candidates = MenuBarItemScanner.usesAccessibilityBackend
+            ? [] : currentImportCandidates()
         guard menuBarImportMonitor.start(
             candidates: candidates,
             panelTargetFrame: panelTargetFrame,
@@ -1199,8 +1216,18 @@ final class StatusBarController {
         prefetchImportPreviewImages(for: candidates)
 
         importCandidateRefreshTask = Task { @MainActor [weak self] in
+            if MenuBarItemScanner.usesAccessibilityBackend {
+                await MenuBarItemScanner.refreshStatusWindows(force: true)
+                guard let self, !Task.isCancelled, self.panel.isVisible,
+                      self.menuBarImportMonitor.isRunning else { return }
+                let candidates = self.currentImportCandidates()
+                self.menuBarImportMonitor.updateCandidates(candidates)
+                self.prefetchImportPreviewImages(for: candidates)
+            }
             while let self, self.panel.isVisible, self.menuBarImportMonitor.isRunning {
-                guard (try? await Task.sleep(for: .milliseconds(250))) != nil else { return }
+                guard (try? await Task.sleep(
+                    for: .milliseconds(MenuBarPollingPolicy.panelIntervalMilliseconds)
+                )) != nil else { return }
                 guard self.panel.isVisible else { return }
                 await MenuBarItemScanner.refreshStatusWindows()
                 guard !Task.isCancelled,
@@ -1421,8 +1448,8 @@ final class StatusBarController {
                     expectedFrame: frame
                 ) else {
                     self.showAlert(
-                        title: "图标身份已经变化",
-                        message: "macOS 在点击前更新了这个菜单栏图标。为避免打开错误的项目，FoldBar 已停止操作。"
+                        title: L10n.text(.identityChangedTitle),
+                        message: L10n.text(.replayIdentityChanged)
                     )
                     return
                 }
@@ -1504,8 +1531,8 @@ final class StatusBarController {
                     "import[\(diagnosticID, privacy: .public)] unavailable source=\(Self.frameDescription(sourceFrame), privacy: .public)"
                 )
                 showAlert(
-                    title: "无法收纳这个图标",
-                    message: "真实图标或 FoldBar 分隔符没有出现在可安全拖动的菜单栏区域。菜单栏已保持展开，你可以手动按住 ⌘ 调整。"
+                    title: L10n.text(.importUnavailableTitle),
+                    message: L10n.text(.legacyImportUnavailable)
                 )
                 return
             }
@@ -1520,8 +1547,8 @@ final class StatusBarController {
                     "import[\(diagnosticID, privacy: .public)] cancelled: accessibility identity changed"
                 )
                 showAlert(
-                    title: "图标身份已经变化",
-                    message: "macOS 在操作前更新了这个菜单栏图标。为避免移动错误的项目，FoldBar 已停止操作并保持菜单栏展开。"
+                    title: L10n.text(.identityChangedTitle),
+                    message: L10n.text(.moveIdentityChanged)
                 )
                 return
             }
@@ -1536,8 +1563,8 @@ final class StatusBarController {
                     "import[\(diagnosticID, privacy: .public)] failed posted=\(posted, privacy: .public)"
                 )
                 showAlert(
-                    title: "图标没有收纳成功",
-                    message: "macOS 没有接受这次自动拖动。菜单栏已保持展开，请按住 ⌘ 将这个真实图标拖到 FoldBar 分隔符左侧。"
+                    title: L10n.text(.importFailedTitle),
+                    message: L10n.text(.legacyImportFailed)
                 )
                 return
             }
@@ -1563,8 +1590,8 @@ final class StatusBarController {
         guard !bundleIdentifier.isEmpty,
               bundleIdentifier != Bundle.main.bundleIdentifier else {
             showAlert(
-                title: "无法收纳这个图标",
-                message: "macOS 27 没有提供这个菜单栏项目的应用标识。FoldBar 没有修改菜单栏。"
+                title: L10n.text(.importUnavailableTitle),
+                message: L10n.text(.privateMissingIdentity)
             )
             return
         }
@@ -1595,8 +1622,8 @@ final class StatusBarController {
                           || $0.windowName == item.windowName
                   }) else {
                 self.showAlert(
-                    title: "图标身份已经变化",
-                    message: "macOS 在收纳前重建了这个菜单栏项目。FoldBar 没有隐藏任何程序，请重新拖入。"
+                    title: L10n.text(.identityChangedTitle),
+                    message: L10n.text(.importIdentityChanged)
                 )
                 return
             }
@@ -1628,8 +1655,8 @@ final class StatusBarController {
             guard !Task.isCancelled else { return }
             guard captured.count == liveItems.count else {
                 self.showAlert(
-                    title: "无法读取真实图标",
-                    message: "FoldBar 没有取得这个应用全部菜单栏图标的截图，因此没有收纳它。请保持图标可见后重试。"
+                    title: L10n.text(.captureUnavailableTitle),
+                    message: L10n.text(.captureUnavailableMessage)
                 )
                 return
             }
@@ -1644,8 +1671,8 @@ final class StatusBarController {
             guard !Task.isCancelled else { return }
             guard applied else {
                 self.showAlert(
-                    title: "图标没有收纳成功",
-                    message: "macOS 27 的菜单栏服务没有接受 FoldBar 的独立收纳请求；真实图标保持可见。"
+                    title: L10n.text(.importFailedTitle),
+                    message: L10n.text(.privateImportFailed)
                 )
                 return
             }
@@ -2086,12 +2113,12 @@ final class StatusBarController {
         let menu = NSMenu()
         menu.autoenablesItems = false
 
-        let open = NSMenuItem(title: "打开溢出面板", action: #selector(openFromMenu), keyEquivalent: "")
+        let open = NSMenuItem(title: L10n.text(.openPanel), action: #selector(openFromMenu), keyEquivalent: "")
         open.target = self
         open.isEnabled = isCollapsed
         menu.addItem(open)
 
-        let settings = NSMenuItem(title: "设置", action: #selector(settingsFromMenu), keyEquivalent: "")
+        let settings = NSMenuItem(title: L10n.text(.settings), action: #selector(settingsFromMenu), keyEquivalent: "")
         settings.target = self
         menu.addItem(settings)
 
@@ -2104,16 +2131,16 @@ final class StatusBarController {
         menu.addItem(permissions)
         menu.addItem(.separator())
 
-        let login = NSMenuItem(title: "登录时启动", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
+        let login = NSMenuItem(title: L10n.text(.launchAtLogin), action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
         login.target = self
         login.state = SMAppService.mainApp.status == .enabled ? .on : .off
         menu.addItem(login)
 
-        let about = NSMenuItem(title: "关于 FoldBar", action: #selector(openAbout), keyEquivalent: "")
+        let about = NSMenuItem(title: L10n.text(.aboutTitle), action: #selector(openAbout), keyEquivalent: "")
         about.target = self
         menu.addItem(about)
         menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "退出", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        menu.addItem(NSMenuItem(title: L10n.text(.quit), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
 
         toggleItem.menu = menu
         toggleItem.button?.performClick(nil)
@@ -2135,26 +2162,26 @@ final class StatusBarController {
             }
         } catch {
             showAlert(
-                title: "无法更改登录启动",
-                message: "请先把应用移动到“应用程序”文件夹，或在系统设置 › 通用 › 登录项中管理。"
+                title: L10n.text(.loginFailedTitle),
+                message: L10n.text(.loginFailedMessage)
             )
         }
     }
 
     @objc private func openAbout() {
-        NSApp.activate(ignoringOtherApps: true)
-        let credits = NSAttributedString(
-            string: "Based in part on MenubarHide (MIT).\nNo Ice source code is included.",
-            attributes: [.font: NSFont.systemFont(ofSize: 11)]
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
+        showAlert(
+            title: L10n.text(.aboutTitle),
+            message: L10n.format(.aboutMessage, version, build)
         )
-        NSApp.orderFrontStandardAboutPanel(options: [.credits: credits])
     }
 
     private var permissionMenuTitle: String {
         if IconCapturer.hasPermission(), EventForwarder.isTrusted() {
-            return "权限：已完整授权"
+            return L10n.text(.permissionsGrantedMenu)
         }
-        return "权限设置…"
+        return L10n.text(.permissionsMenu)
     }
 
     private func schedulePermissionOnboarding() {
@@ -2180,8 +2207,8 @@ final class StatusBarController {
         let accessibilityGranted = EventForwarder.isTrusted()
         if screenGranted, accessibilityGranted {
             showAlert(
-                title: "权限已完整授权",
-                message: "屏幕录制用于显示图标和折叠区域；辅助功能用于识别菜单栏项目，以及你主动发起的点击、收纳或拖动操作。"
+                title: L10n.text(.permissionsGrantedTitle),
+                message: L10n.text(.permissionsGrantedMessage)
             )
             return
         }
@@ -2189,11 +2216,11 @@ final class StatusBarController {
         let defaults = UserDefaults.standard
         if !defaults.bool(forKey: Self.combinedPermissionRequestKey) {
             let response = runAlert(
-                title: "FoldBar 需要两项权限",
-                message: "屏幕录制：读取菜单栏小图标和折叠区域。\n辅助功能：识别菜单栏项目，并转发你主动执行的点击和拖动。\n\n点击一次后，macOS 会分别显示两个系统级确认；FoldBar 不会在后续操作中反复请求。",
+                title: L10n.text(.permissionsOnboardingTitle),
+                message: L10n.text(.permissionsOnboardingMessage),
                 buttons: [
-                    "一次性请求两项权限",
-                    "稍后"
+                    L10n.text(.requestPermissions),
+                    L10n.text(.later)
                 ]
             )
             guard response == .alertFirstButtonReturn else { return }
@@ -2203,12 +2230,12 @@ final class StatusBarController {
             return
         }
 
-        let screenStatus = screenGranted ? "已授权" : "未授权"
-        let accessibilityStatus = accessibilityGranted ? "已授权" : "未授权"
+        let screenStatus = screenGranted ? L10n.text(.permissionGranted) : L10n.text(.permissionDenied)
+        let accessibilityStatus = accessibilityGranted ? L10n.text(.permissionGranted) : L10n.text(.permissionDenied)
         let response = runAlert(
-            title: "FoldBar 权限设置",
-            message: "屏幕录制：\(screenStatus)\n辅助功能：\(accessibilityStatus)\n\n系统提示已经请求过，不会再次自动弹出。请在系统设置中打开缺少的权限。",
-            buttons: ["打开系统设置", "取消"]
+            title: L10n.text(.permissionsTitle),
+            message: L10n.format(.permissionsStatus, screenStatus, accessibilityStatus),
+            buttons: [L10n.text(.openSystemSettings), L10n.text(.cancel)]
         )
         guard response == .alertFirstButtonReturn else { return }
         openPrivacySettings(anchor: screenGranted ? "Privacy_Accessibility" : "Privacy_ScreenCapture")
@@ -2223,12 +2250,12 @@ final class StatusBarController {
 
     private func showRestartForCacheAlert() {
         let message = MenuBarItemScanner.usesAccessibilityBackend
-            ? "权限已经可用，但这一进程启动时还没有建立代理缓存。重新启动后会在折叠前截取真实图标并生成白色模板。"
-            : "屏幕录制权限已经可用，但这一进程启动时还没有建立图标缓存。重新启动后会在折叠前预先采集，面板即可直接出现。"
+            ? L10n.text(.restartPrivateCache)
+            : L10n.text(.restartLegacyCache)
         let response = runAlert(
-            title: "需要重新启动 FoldBar",
+            title: L10n.text(.restartTitle),
             message: message,
-            buttons: ["重新启动", "稍后"]
+            buttons: [L10n.text(.restart), L10n.text(.later)]
         )
         guard response == .alertFirstButtonReturn else { return }
         relaunch()
@@ -2243,8 +2270,11 @@ final class StatusBarController {
             configuration: configuration
         ) { [weak self] _, error in
             Task { @MainActor [weak self] in
-                if let error {
-                    self?.showAlert(title: "无法重新启动 FoldBar", message: error.localizedDescription)
+                if error != nil {
+                    self?.showAlert(
+                        title: L10n.text(.restartFailedTitle),
+                        message: L10n.text(.restartFailedMessage)
+                    )
                 } else {
                     NSApp.terminate(nil)
                 }
@@ -2253,7 +2283,7 @@ final class StatusBarController {
     }
 
     private func showAlert(title: String, message: String) {
-        _ = runAlert(title: title, message: message, buttons: ["好"])
+        _ = runAlert(title: title, message: message, buttons: [L10n.text(.ok)])
     }
 
     private func runAlert(

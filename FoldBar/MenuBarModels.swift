@@ -7,6 +7,8 @@ struct MenuBarAccessibilityIdentity: Equatable, Hashable, Sendable {
 }
 
 struct MenuBarItemWindow: Identifiable, Equatable, Sendable {
+    // Native identity matching keeps these stable across language changes.
+    static let genericItemLabels: Set<String> = ["Menu bar item", "菜单栏图标"]
     let id: CGWindowID
     let frame: CGRect
     let ownerName: String
@@ -38,19 +40,22 @@ struct MenuBarItemWindow: Identifiable, Equatable, Sendable {
 
     var displayName: String {
         let trimmed = windowName.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty, trimmed != "Item-0" { return trimmed }
+        if !trimmed.isEmpty, trimmed != "Item-0", !Self.genericItemLabels.contains(trimmed) {
+            return trimmed
+        }
 
         let owner = ownerName.trimmingCharacters(in: .whitespacesAndNewlines)
         let genericHosts = ["Control Center", "控制中心", "Status menu", "状态菜单"]
         if !owner.isEmpty, !genericHosts.contains(owner) { return owner }
-        return "菜单栏图标"
+        return L10n.text(.menuBarItem)
     }
 }
 
 struct CapturedItem: Identifiable {
     let window: MenuBarItemWindow
     let image: NSImage
-    let hoverText: String
+    private let nativeHoverText: String?
+    var hoverText: String { nativeHoverText ?? window.displayName }
     let ownerProcessIdentifier: pid_t?
     var id: CGWindowID { window.id }
 
@@ -64,6 +69,7 @@ struct CapturedItem: Identifiable {
         self.image = image
         self.ownerProcessIdentifier = ownerProcessIdentifier ?? window.ownerProcessIdentifier
         let resolved = hoverText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        self.hoverText = resolved.isEmpty ? window.displayName : resolved
+        self.nativeHoverText = resolved.isEmpty || MenuBarItemWindow.genericItemLabels.contains(resolved)
+            ? nil : resolved
     }
 }

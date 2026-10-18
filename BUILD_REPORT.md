@@ -1,5 +1,301 @@
 # FoldBar build report
 
+## Background inventory and capture optimization — 2026-10-18
+
+Implemented and installed, preserving the existing language changes:
+
+- An empty persisted macOS 27 managed set no longer arms the collapsed background
+  monitor. A nonempty persisted set still retries missing images even when its
+  usable image cache is empty. Removing the last managed bundle recomputes the
+  monitor lifetime; importing the first bundle resumes it.
+- AX inventory now keys snapshots by PID, bundle ID and launch date. Normal
+  discovery refreshes known menu-extra owners, MenuBarAgent, and newly observed
+  processes during a 30-second discovery grace. A full sweep becomes due every
+  30 seconds and runs on the next monitor request; this is a fallback cadence,
+  not a strict 30-second wall-clock discovery guarantee. Exited/reused generations
+  are pruned, completed empty scans replace old snapshots, and partial/cancelled
+  scans do not postpone the full sweep. One shared detached scan remains in flight.
+- Explicit panel opening performs a full fresh inventory. Its input tap starts
+  with no allowed candidates until that refresh completes, preventing old cached
+  coordinates from being intercepted after an idle empty collection. Cancellation
+  and panel/tap lifetime are rechecked before publishing candidates or previews.
+- Legacy collapsed polling changes from 600 to 1,500 ms; panel polling changes
+  from 250 to 500 ms, matching the AX minimum refresh interval. Live source-frame
+  resolution before clicks and drags is unchanged; no global geometry TTL was added.
+- Background missing-image recovery makes one capture attempt per cooldown batch
+  instead of three. Startup and explicit imports keep their existing retries.
+  The 15/30/60/120/300-second cooldown and fail-open visibility remain intact.
+- Removed a redundant all-process property query immediately after creating a
+  new shared scan. The fresh post-await generation check remains.
+- Added explicit `--inventory-performance-probe` developer diagnostics: ten paired
+  full/scoped scans in one process, existing AX permission only, no screenshots,
+  visibility assertions, synthetic input or preference writes. Ordinary launches
+  never enter this mode. Only bounded scalar refresh statistics are retained.
+
+Validation:
+
+- **142 Swift Testing tests in 14 suites passed** on the final source. Ten new
+  tests cover discovery scope/grace, forced and fallback scans, generation reuse,
+  empty/partial merges, incomplete sweeps and empty-managed monitor behavior.
+- The universal **x86_64 / arm64 Release** build passed without source warnings;
+  the existing skipped AppIntents metadata warning remains. A second XcodeGen
+  generation was byte-identical and `git diff --check` passed.
+- Strict code signature validation passed. Bundle `local.foldbar.app`, team
+  `42MUMXKY79`, version 0.2.0/build 2, deployment target 14.0, and the designated
+  requirement match the prior installation. Both localized catalogs still contain
+  78 keys. Membership, language, appearance, direct-drag and onboarding preference
+  values were compared before/after and preserved; no TCC reset occurred.
+
+The controlled inventory comparison used the same process and the same twelve
+menu-item identities in all ten pairs, with 114 running applications throughout:
+
+| Per refresh | Full inventory | Scoped inventory |
+| --- | ---: | ---: |
+| Applications receiving an AX scan | 114 | 13 |
+| Mean elapsed time | 1.632262 s | 0.078371 s |
+| Mean FoldBar CPU time | 0.034960 s | 0.028769 s |
+
+This is **88.6% fewer applications scanned**, **95.2% less elapsed
+scan time** and **17.7% less process CPU time per refresh** in this
+specific probe. It does not measure total-system power, and a periodic full
+fallback remains part of normal operation.
+
+Separate normal-launch observations, 91 samples over approximately 180 seconds
+each, with heap/leak inspection outside the CPU windows:
+
+| Metric | Prior installed build | Final optimized build |
+| --- | ---: | ---: |
+| Mean FoldBar CPU, percent of one core | 0.875% | 0.675% |
+| Last approximately 60 s mean CPU | 0.904% | 0.683% |
+| Interrupt wakeups per second | 1.447 | 0.316 |
+| Package-idle wakeups per second | 0.322 | 0.083 |
+| Physical footprint range | 28.77–28.97 MiB | 20.86–20.95 MiB |
+
+The observed mean CPU difference is 22.9%. These normal
+launches had ten successfully captured IDs each but only nine in common, and
+cold/warm framework caches differed. Do not attribute all of the CPU or memory
+difference to this change. The controlled same-process comparison above isolates
+inventory selection. CPU counters use Mach timebase 125/3 ns per tick.
+
+Final normal-mode heap/leak observations remained stable across the sample:
+CGImage 34 → 34, CGImageProvider 18 → 18, NSImage 17 → 17, IOSurface heap objects
+0 → 0; `leaks --noContent` reported **432 → 432 bytes** in six objects, rooted at
+three NSMutableDictionary instances. No background capture failure occurred in
+this final interval, so it does not directly exercise the new one-attempt failure
+path or prove zero future leakage.
+
+Residual screenshot leak attribution:
+
+- A single installed current-API probe with process-local `MallocStackLogging=lite`
+  completed **100/100 captures at 44 x 44 pixels**. All 100 leaked dictionary
+  allocation stacks point to ScreenCaptureKit's internal
+  `captureScreenshotWithRect:contentFilter:configuration:completionHandler:` →
+  `CGRectCreateDictionaryRepresentation` → `CFDictionaryCreateMutable`.
+  `malloc_history` independently confirmed three sampled roots.
+- Lite instrumentation reported 17,600 leaked bytes (allocator overhead changes
+  the per-pair sizes). The earlier uninstrumented residual was 144 bytes per
+  region call. The dictionary is internal to the OS API; FoldBar does not own a
+  releasable reference to it. Image/output ownership was left correct.
+- The OS leak is **not fixed** by this change. Reducing unnecessary capture
+  attempts reduces potential triggers; actual background 3→1 failure behavior
+  is a source-level change, not a reproduced failure during the final sample.
+
+Installation and retained artifacts:
+
+- The optimized sole installed `/Applications/FoldBar.app` is running normally,
+  PID 56213, with no diagnostic arguments or stack-logging environment.
+  `ps`, `lsof`, strict signature and executable hash were checked after all probes.
+  Installed executable SHA-256:
+  `ba42acae269d82709c2b102be397c5a4b42018ab03845d4973d538262f6f78ba`.
+- Final app file bytes: **3,001,077 (2.862 MiB)**,
+  versus 2,868,981 bytes before optimization. The additional policy, regression
+  tests' source membership and diagnostics do not bundle test products or dSYMs;
+  both architectures and original icon assets remain.
+- Rollback: `~/Library/Application Support/FoldBar/Backups/FoldBar-before-inventory-optimization-2026-10-18-172938.zip`.
+  `unzip -t` passed and the archived executable matches the prior installed build.
+  Archive SHA-256: `d2c1e52e2951f9d3eb257d7e3ed3fe7ecd1093ee724399fecc2ebdf0428c559d`.
+- Matching final universal symbols: `~/Library/Application Support/FoldBar/Symbols/FoldBar-0.2.0-build2-ba42acae.dSYM.zip`.
+  Both UUIDs match the installed executable and `unzip -t` passed.
+  Archive SHA-256: `b568b0278f84ddeb775f57a7dbad90b79ab5f6bc508d9d7d7027f53f97eb5186`.
+- Temporary Debug/Release registrations were removed. Moved-old-app paths had no
+  registration (`-10814`). Inspected DerivedData, moved candidates and termination
+  helper were removed; intermediate symbols were removed after final symbols were
+  verified. The tracked distribution ZIP and remote Git state were not changed.
+
+Native UI automation did not expose FoldBar's accessory process in its inventory;
+actual proxy-click/import/promotion acceptance and macOS 14–26 runtime remain
+unverified for this change. A first-open import waits for fresh inventory. Total
+system watts, temperature and multi-day stability were not measured. No speculative
+OS callback ownership/timeout workaround was introduced.
+
+Raw counters, paired probe output, no-content heap/leaks, final build logs and
+installation metadata are retained at
+`~/.codex/visualizations/2026/10/18/01a14e35-8548-7273-9868-73ea497cca3a/foldbar-performance-optimization-20261018-172712/`.
+Allocation stack evidence is in the sibling `foldbar-leak-attribution-pc7u97g1/`;
+capture-cohort comparisons are in `foldbar-capture-cohorts-11yu4wtm/`.
+
+## Installed performance and memory audit — 2026-10-18
+
+Scope: the currently installed signed `/Applications/FoldBar.app`, PID 51599,
+macOS 27.0 (`26A428`), Mac17,4, 10 logical CPUs. Its executable SHA-256 remains
+`b0e863fa212fd83536a10d70eba622ac46ac15a23da0d012e5bb58c47d6fe6ef`. All 44 source/project files from the signed installation
+snapshot still match. No application source, preferences, permissions, managed
+membership, installed bundle or running process was changed during this audit.
+
+Measurements:
+
+| Metric | Result |
+| --- | --- |
+| Installed bundle file bytes | 2,868,981 bytes (2.736 MiB) |
+| Change from the pre-language-switch backup | +90,326 bytes (+3.25%) |
+| Main executable / Assets.car | 1,523,488 / 1,253,736 bytes |
+| Four localized resource files | 22,302 bytes |
+| Physical footprint during 151 samples over 300.57 seconds | 41.20–41.31 MiB; start 41.251, end 41.267 MiB |
+| CPU, mean / maximum two-second interval | 0.457% / 1.595% of one CPU core |
+| Interrupt / package-idle wakeups | 0.349 / 0.093 per second |
+| Process-attributed disk reads / writes during this series | 0 / 0 bytes |
+| `leaks --noContent`, 361.475 seconds apart | 95 objects / 6,800 bytes → 107 objects / 7,664 bytes; +864 bytes |
+| `heap -s --noContent`, initial → final | CGImage 65 → 65; CGImageProvider 45 → 45; NSImage 17 → 17; IOSurface heap objects 0 → 0 |
+
+CPU uses `proc_pid_rusage` cumulative user/system time deltas normalized with this
+host's Mach timebase (125/3 ns per tick), cross-checked against `ps` cumulative
+CPU time. The first top snapshot is not used as a rate. Heap/leak inspection and
+the final five-second stack sample ran outside the CPU series. Physical footprint
+is reported separately from RSS (~127.6 MiB of resident mappings) and virtual
+address space; those are different accounting measures.
+
+Findings and limits:
+
+- **Small residual leak reports remain.** All leak roots in both snapshots were
+  NSMutableDictionary; no CGImage, CGDataProvider or IOSurface leak root appeared.
+  Six failed region-fallback attempts were logged during the leak-comparison
+  interval, coinciding with the 864-byte increase. Allocation backtraces were
+  not enabled, so this correlation does not establish the source of the leaked
+  dictionaries. Do not describe this build as leak-free or extrapolate a daily
+  growth rate from this short interval.
+- **No current package-size problem or large image accumulation was observed.**
+  The app remains universal, with no bundled dSYM, test bundle or third-party
+  framework. Settings intentionally retains a single panel; screenshot and
+  preview caches have finite live-item/session boundaries. The known historical
+  image leak chain did not recur in these samples.
+- **Recurring system calls remain an optimization opportunity.** Collapsed
+  macOS 27 operation scans all running apps' AX menu extras every 5 seconds plus
+  scan duration (`StatusBarController.swift:552`, `MenuBarAccessibility.swift:138`).
+  It still scans when the managed set is empty, although no visibility assertion
+  needs reconciliation. An unchanged visibility key avoids replacing the private
+  assertion; successful images are reused rather than recaptured every tick.
+- **Legacy polling is more frequent in source.** macOS 14–26 requests the full
+  CG window list about every 600 ms while collapsed, and every 250 ms with the
+  panel open (`MenuBarItemScanner.swift:247`, `StatusBarController.swift:1205`).
+  macOS 27's panel loop is 250 ms with a 500 ms AX refresh throttle. This is a
+  code finding; its actual older-system CPU and energy cost was not measured.
+- **Failed screenshot backoff is active.** The latest stable failed-capture batch
+  starts were 33.895, 61.550 and 120.934 seconds apart, consistent with the
+  30/60/120-second policy plus scan overhead. Each batch contained three failed
+  attempts. The code caps later retries at 300 seconds; the 300-second stage was
+  not reached within this observation. No per-5-second blanket screenshot retry
+  or unbounded concurrent periodic scan was found.
+- **Cancellation and OS callback robustness can improve.** Cancelling a caller
+  does not cancel the shared detached AX scan already in flight. Screenshot and
+  private activation continuations have no explicit timeout/cancellation bridge
+  (`IconCapturer.swift:246`, `MenuBarVisibilityRestriction.swift:322`). A lost
+  callback could retain one pending operation; no lost-callback occurrence or
+  resulting resource growth was observed in this audit.
+- **No sustained high-load heating evidence was found in this interval.** The
+  main thread mostly waited for events; the worker sample included synchronous
+  AX IPC waits. `pmset -g therm` reported no recorded thermal/performance warning,
+  which is not a temperature measurement. Total-system watts, other processes'
+  induced CPU work, a quit/running A/B comparison, multi-day stability, repeated
+  user interactions and macOS 14–26 runtime were not measured.
+
+Recommended optimization order: eliminate unnecessary
+empty-managed-set scans, reduce unchanged all-application polling while retaining
+new-item fail-open reconciliation, then isolate the residual dictionary leak with
+allocation stacks. Give OS callback cancellation/timeouts focused coverage before
+changing their lifetime semantics.
+
+Raw no-content heap/leak summaries, process samples, clock-normalized counters,
+source hashes and logs are preserved outside the repository in
+`~/.codex/visualizations/2026/10/18/01a14e35-8548-7273-9868-73ea497cca3a/foldbar-performance-audit-20261018-171327/`.
+Only this report was updated; no new app build or registration was needed.
+`git diff --check` passed. Existing localization changes and `.codex-probe/` were
+preserved.
+
+## Chinese / English language switching — 2026-10-18
+
+- Settings now offers Follow System, 简体中文, and English. The app saves the
+  selection and updates its own interface immediately through explicit localized
+  resource lookup. It does not change AppleLanguages, recreate status items,
+  refresh screenshot caches, or request permissions again.
+- Both language catalogs contain **78 matching interface keys**. Coverage
+  includes settings, appearance descriptions and fallback text, overflow/drop
+  hints, context menus, About, login-item errors, permissions and restart flows,
+  and click/import/promotion recovery messages on **macOS 14–26 and 27+**.
+- Native third-party names and hover help retain their original text. Generic
+  proxy names are resolved for display in the chosen language; the underlying
+  AX labels used to validate item identity stay stable. macOS privacy dialogs
+  and System Settings continue to use the system's language controls.
+- The settings form has room for English descriptions and adapts its height to
+  the visible screen. The existing macOS 27 per-application membership limit
+  is explained in both languages. Deployment remains macOS 14.0.
+
+Verification on macOS 27.0 (`26A428`), Xcode 27.1 (`27A9275`):
+
+- All **132 Swift Testing tests in 12 suites passed**, including 11 new tests
+  for language preferences, isolated persistence, complete built-resource
+  coverage, format argument parity/substitution, and legacy recovery guidance.
+- The universal Release build completed for **x86_64 and arm64**, without Swift
+  source warnings. The existing skipped AppIntents metadata warning remains.
+- `codesign --verify --deep --strict` passed for the Release candidate. Its
+  bundle identifier is `local.foldbar.app`, team `42MUMXKY79`, and minimum
+  system version `14.0`.
+- Both `.strings` catalogs and localized InfoPlist files pass `plutil -lint`.
+  A second XcodeGen generation produced an identical tracked project;
+  `git diff --check` passed.
+- A temporary standalone executable rendered the production settings view with
+  the real resource catalogs, without launching another FoldBar app bundle or
+  creating status items. English and Chinese content fit at 500 x 590 points.
+  A live change through the volatile argument domain refreshed both the view
+  and native window title. At 500 x 380 points, the longest English glass and
+  direct-drag descriptions remained readable through normal vertical scrolling,
+  with no observed horizontal truncation. The harness wrote no persistent
+  settings; these renders do not exercise older-system visual styles.
+- Test hosts and the settings harness exited. Temporary Debug/Release app
+  registrations and the inspected temporary build directories were removed.
+
+The initial source/build verification left the installed app untouched. Real
+macOS 14–26 runtime and the full interactive menu-bar acceptance checklist remain
+unverified for this change. No TCC reset, preference deletion, commit, or push
+was performed.
+
+Local installation, explicitly authorized on 2026-10-18:
+
+- Rebuilt the unchanged source snapshot as a signed universal Release; strict
+  signature, both architectures, 78 keys in each built language catalog, and
+  the designated requirement matching the prior installation all passed.
+- Quit the prior installed process cleanly, replaced only
+  `/Applications/FoldBar.app`, and explicitly launched that path without probe
+  arguments. `ps` and `lsof` confirm the running executable at that path
+  (PID 51599). The installed executable matches the candidate SHA-256:
+  `b0e863fa212fd83536a10d70eba622ac46ac15a23da0d012e5bb58c47d6fe6ef`.
+- Identity remains `local.foldbar.app`, team `42MUMXKY79`, version 0.2.0/build 2,
+  minimum macOS 14.0. The installed signature and both localized resource
+  catalogs were checked again after replacement.
+- Rollback archive: `~/Library/Application Support/FoldBar/Backups/FoldBar-before-language-switch-2026-10-18-170910.zip`.
+  `unzip -t` passed; the archived executable matches the prior installed hash.
+  Archive SHA-256: `02789e3896854994da39ddd73ff0f38f451e11493726512c26c0540eb77a009f`.
+- Matching arm64/x86_64 debug symbols were archived outside the app at
+  `~/Library/Application Support/FoldBar/Symbols/FoldBar-0.2.0-build2-b0e863fa.dSYM.zip`.
+  Both UUIDs match the installed executable and `unzip -t` passed.
+  Archive SHA-256: `abb8e1ba0b38c78f022935fb220652e96c991596f70d895a63d017cf9bace7bc`.
+- Temporary build/moved-app registrations were removed (the moved-old-app
+  path had no registration, `-10814`); the inspected temporary directory was
+  deleted after preserving the rollback archive, dSYM and build evidence.
+  The tracked historical distribution ZIP was not changed.
+- Installed interaction acceptance is left to the user. Native UI inspection
+  timed out; no installed proxy click, membership change, or language preference
+  change was performed as part of installation.
+
 ## Screenshot memory and Release-size optimization — 2026-10-16
 
 The prior installed process accumulated 98.5 MiB of unreachable image objects.

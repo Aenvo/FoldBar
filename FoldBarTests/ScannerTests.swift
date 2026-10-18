@@ -460,7 +460,7 @@ struct ScannerTests {
             windowName: "Item-0"
         )
 
-        #expect(item.displayName == "菜单栏图标")
+        #expect(item.displayName == L10n.text(.menuBarItem))
     }
 
     @Test("Accessibility metadata matches status windows by their shared center")

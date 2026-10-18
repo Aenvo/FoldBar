@@ -3,22 +3,28 @@ import SwiftUI
 @MainActor
 final class AppearanceSettingsPanel {
     private var panel: NSPanel?
+    var onLanguageChange: (() -> Void)?
 
     func show() {
         if let panel {
+            panel.title = L10n.text(.settingsTitle)
             NSApp.activate(ignoringOtherApps: true)
             panel.makeKeyAndOrderFront(nil)
             return
         }
 
-        let hosting = NSHostingView(rootView: AppearanceSettingsView())
+        let hosting = NSHostingView(rootView: AppearanceSettingsView { [weak self] in
+            self?.panel?.title = L10n.text(.settingsTitle)
+            self?.onLanguageChange?()
+        })
+        let availableHeight = (NSScreen.main?.visibleFrame.height ?? 690) - 100
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 430, height: 390),
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: min(590, max(300, availableHeight))),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
-        panel.title = "FoldBar 设置"
+        panel.title = L10n.text(.settingsTitle)
         panel.contentView = hosting
         panel.isReleasedWhenClosed = false
         panel.center()
@@ -30,10 +36,18 @@ final class AppearanceSettingsPanel {
 }
 
 private struct AppearanceSettingsView: View {
+    @AppStorage(AppLanguage.defaultsKey)
+    private var storedLanguage = AppLanguage.system.rawValue
     @AppStorage(PanelAppearance.defaultsKey)
     private var storedAppearance = PanelAppearance.currentMaterial.rawValue
     @AppStorage(MenuBarDragSettings.directDragDefaultsKey)
     private var directMenuBarDragEnabled = false
+
+    let onLanguageChange: () -> Void
+
+    private var language: AppLanguage {
+        AppLanguage.decode(storedLanguage)
+    }
 
     private var appearance: PanelAppearance {
         PanelAppearance.decode(storedAppearance)
@@ -41,8 +55,23 @@ private struct AppearanceSettingsView: View {
 
     var body: some View {
         Form {
-            Section("悬浮面板外观") {
-                Picker("外观", selection: $storedAppearance) {
+            Section {
+                Picker(L10n.text(.languagePicker), selection: $storedLanguage) {
+                    ForEach(AppLanguage.allCases) { option in
+                        Text(option.title).tag(option.rawValue)
+                    }
+                }
+
+                Text(L10n.text(.languageDetail))
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } header: {
+                Text(L10n.text(.languageSection))
+            }
+
+            Section {
+                Picker(L10n.text(.appearancePicker), selection: $storedAppearance) {
                     ForEach(PanelAppearance.allCases) { option in
                         Text(option.title).tag(option.rawValue)
                     }
@@ -54,26 +83,41 @@ private struct AppearanceSettingsView: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+            } header: {
+                Text(L10n.text(.appearanceSection))
             }
 
-            Section("菜单栏图标拖动") {
+            Section {
                 Toggle(
-                    "直接拖动菜单栏图标（无需 Command）",
+                    L10n.text(.directDragToggle),
                     isOn: $directMenuBarDragEnabled
                 )
 
                 Text(
                     directMenuBarDragEnabled
-                        ? "打开 FoldBar 面板后，按下可见菜单栏图标时先不触发点击，移动后可拖到面板或箭头收纳；原地单击会在松手后打开原图标。"
-                        : "关闭时保持 macOS 原有方式：打开 FoldBar 面板后，按住 Command 再拖动菜单栏图标。"
+                        ? L10n.text(.directDragEnabledDetail)
+                        : L10n.text(.directDragDisabledDetail)
                 )
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+
+                if ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27 {
+                    Text(L10n.text(.privateMembershipDetail))
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } header: {
+                Text(L10n.text(.dragSection))
             }
         }
         .formStyle(.grouped)
         .padding(4)
-        .frame(width: 430, height: 390)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .environment(\.locale, language.locale)
+        .onChange(of: storedLanguage) { _, _ in
+            onLanguageChange()
+        }
     }
 }

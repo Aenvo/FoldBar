@@ -9,6 +9,13 @@ import AppKit
 /// Keep AXUIElement values local to each scan and pass only Sendable identities
 /// through the rest of the app.
 enum MenuBarAccessibility {
+    struct RefreshStatistics: Sendable {
+        let scannedApplications: Int
+        let runningApplications: Int
+        let isFullSweep: Bool
+    }
+
+    @MainActor private(set) static var lastRefreshStatistics: RefreshStatistics?
     struct Snapshot: Equatable, Sendable {
         let identity: MenuBarAccessibilityIdentity
         let id: CGWindowID
@@ -17,20 +24,37 @@ enum MenuBarAccessibility {
         let label: String
     }
 
+    private typealias Application = MenuBarInventoryRefreshPolicy.Application
+
     private struct RunningApplicationIdentity: Sendable {
-        let processIdentifier: pid_t
-        let bundleIdentifier: String
+        let generation: Application
         let ownerName: String
     }
 
     private struct ScanResult: Sendable {
-        let snapshots: [Snapshot]
+        let inventory: [Application: [Snapshot]]
+        let systemOverflowApplication: Application?
         let systemOverflowFrame: CGRect?
+        let wasCancelled: Bool
     }
 
-    @MainActor private static var cachedSnapshots: [Snapshot] = []
+    private struct PendingRefresh {
+        let id: UInt64
+        let selection: MenuBarInventoryRefreshPolicy.Selection
+        let task: Task<ScanResult, Never>
+    }
+
+    @MainActor private static var cachedInventory: [Application: [Snapshot]] = [:]
+    @MainActor private static var cachedSystemOverflowApplication: Application?
     @MainActor private static var cachedSystemOverflowFrame: CGRect?
-    @MainActor private static var refreshTask: Task<ScanResult, Never>?
+    @MainActor private static var refreshTask: PendingRefresh?
+    @MainActor private static var nextRefreshID: UInt64 = 0
+    @MainActor private static var refreshPolicy = MenuBarInventoryRefreshPolicy()
+    @MainActor private static var cachedSnapshots: [Snapshot] {
+        cachedInventory.keys.sorted {
+            $0.processIdentifier < $1.processIdentifier
+        }.flatMap { cachedInventory[$0] ?? [] }
+    }
     @MainActor private static var lastRefresh = ContinuousClock.Instant.now
         .advanced(by: .seconds(-10))
     private static let minimumRefreshInterval = Duration.milliseconds(500)
@@ -94,13 +118,19 @@ enum MenuBarAccessibility {
             ownerName: application.localizedName ?? "",
             label: liveLabel
         )
-        if let index = cachedSnapshots.firstIndex(where: {
-            $0.identity == identity
-        }) {
-            cachedSnapshots[index] = snapshot
+        let generation = applicationIdentity(application)
+        var snapshots = cachedInventory[generation] ?? []
+        if let index = snapshots.firstIndex(where: { $0.identity == identity }) {
+            snapshots[index] = snapshot
         } else {
-            cachedSnapshots.append(snapshot)
+            snapshots.append(snapshot)
         }
+        // Do not retain an earlier process generation with the same PID.
+        cachedInventory = cachedInventory.filter {
+            $0.key.processIdentifier != generation.processIdentifier
+                || $0.key == generation
+        }
+        cachedInventory[generation] = snapshots
         return snapshot
     }
 
@@ -115,6 +145,7 @@ enum MenuBarAccessibility {
                           && $0.bundleIdentifier == "com.apple.MenuBarAgent"
                   }
               ) else { return nil }
+        cachedSystemOverflowApplication = applicationIdentity(application)
         cachedSystemOverflowFrame = nativeOverflowButtonFrame(
             in: AXUIElementCreateApplication(application.processIdentifier)
         )
@@ -124,77 +155,178 @@ enum MenuBarAccessibility {
     @MainActor
     @discardableResult
     static func refresh(force: Bool = false) async -> [Snapshot] {
-        guard AXIsProcessTrusted() else {
-            refreshTask?.cancel()
-            refreshTask = nil
-            cachedSnapshots = []
-            cachedSystemOverflowFrame = nil
-            return []
-        }
-        if !force,
-           ContinuousClock.Instant.now - lastRefresh < minimumRefreshInterval {
+        while true {
+            guard AXIsProcessTrusted() else {
+                refreshTask?.task.cancel()
+                cachedInventory = [:]
+                cachedSystemOverflowApplication = nil
+                cachedSystemOverflowFrame = nil
+                refreshPolicy = MenuBarInventoryRefreshPolicy()
+                return []
+            }
+            guard !Task.isCancelled else { return cachedSnapshots }
+            let applications = runningApplications()
+            let liveApplications = Set(applications.map(\.generation))
+            pruneCache(runningApplications: liveApplications)
+
+            if let pending = refreshTask {
+                let result = await pending.task.value
+                finishRefresh(pending, result: result)
+                guard AXIsProcessTrusted() else { return [] }
+                if result.wasCancelled { continue }
+                // A user action joining an incremental scan still receives a
+                // full inventory. Do not cancel work shared with other callers.
+                if force,
+                   (!pending.selection.isFullSweep
+                    || !liveApplications.isSubset(of: pending.selection.applications)) {
+                    continue
+                }
+                return cachedSnapshots
+            }
+            if !force,
+               liveApplications == refreshPolicy.runningApplications,
+               ContinuousClock.Instant.now - lastRefresh < minimumRefreshInterval {
+                return cachedSnapshots
+            }
+            let selection = refreshPolicy.selection(
+                runningApplications: applications.map(\.generation),
+                now: ProcessInfo.processInfo.systemUptime,
+                force: force
+            )
+            let selected = applications.filter {
+                selection.applications.contains($0.generation)
+            }
+            let reservedIDs = Set(cachedInventory.filter {
+                !selection.applications.contains($0.key)
+            }.values.flatMap { $0.map(\.id) })
+            nextRefreshID &+= 1
+            let pending = PendingRefresh(
+                id: nextRefreshID,
+                selection: selection,
+                task: Task.detached(priority: .utility) {
+                    scan(applications: selected, reservedIDs: reservedIDs)
+                }
+            )
+            refreshTask = pending
+            // Join directly. Looping back through the shared-task branch here
+            // would query every NSRunningApplication's properties a second
+            // time before this very same scan has even completed.
+            let result = await pending.task.value
+            finishRefresh(pending, result: result)
+            guard AXIsProcessTrusted() else { return [] }
+            if result.wasCancelled { continue }
             return cachedSnapshots
         }
-        let task: Task<ScanResult, Never>
-        if let inFlight = refreshTask {
-            task = inFlight
-        } else {
-            let ownProcessIdentifier = ProcessInfo.processInfo.processIdentifier
-            let applications = NSWorkspace.shared.runningApplications
-                .filter {
-                    !$0.isTerminated
-                        && $0.processIdentifier != ownProcessIdentifier
-                }
-                .map {
-                    RunningApplicationIdentity(
-                        processIdentifier: $0.processIdentifier,
-                        bundleIdentifier: $0.bundleIdentifier ?? "",
-                        ownerName: $0.localizedName ?? ""
-                    )
-                }
-            task = Task.detached(priority: .utility) {
-                scan(applications: applications)
-            }
-            refreshTask = task
-        }
+    }
 
-        let result = await task.value
-        if AXIsProcessTrusted() {
-            cachedSnapshots = result.snapshots
-            cachedSystemOverflowFrame = result.systemOverflowFrame
-            lastRefresh = .now
-        } else {
-            cachedSnapshots = []
+    @MainActor
+    private static func applicationIdentity(
+        _ application: NSRunningApplication
+    ) -> Application {
+        Application(
+            processIdentifier: application.processIdentifier,
+            bundleIdentifier: application.bundleIdentifier ?? "",
+            launchDate: application.launchDate
+        )
+    }
+
+    @MainActor
+    private static func runningApplications() -> [RunningApplicationIdentity] {
+        let ownProcessIdentifier = ProcessInfo.processInfo.processIdentifier
+        return NSWorkspace.shared.runningApplications.filter {
+            !$0.isTerminated && $0.processIdentifier != ownProcessIdentifier
+        }.map {
+            RunningApplicationIdentity(
+                generation: applicationIdentity($0),
+                ownerName: $0.localizedName ?? ""
+            )
+        }
+    }
+
+    @MainActor
+    private static func pruneCache(runningApplications: Set<Application>) {
+        cachedInventory = MenuBarInventoryRefreshPolicy.merging(
+            [:],
+            into: cachedInventory,
+            runningApplications: runningApplications
+        )
+        if let host = cachedSystemOverflowApplication,
+           !runningApplications.contains(host) {
+            cachedSystemOverflowApplication = nil
             cachedSystemOverflowFrame = nil
         }
+    }
+
+    @MainActor
+    private static func finishRefresh(
+        _ pending: PendingRefresh,
+        result: ScanResult
+    ) {
+        // Only the first waiter consumes this task. A late waiter must never
+        // clear a newer task or overwrite a fresher targeted snapshot.
+        guard refreshTask?.id == pending.id else { return }
         refreshTask = nil
-        return cachedSnapshots
+        guard AXIsProcessTrusted() else {
+            cachedInventory = [:]
+            cachedSystemOverflowApplication = nil
+            cachedSystemOverflowFrame = nil
+            refreshPolicy = MenuBarInventoryRefreshPolicy()
+            return
+        }
+        let liveApplications = Set(runningApplications().map(\.generation))
+        pruneCache(runningApplications: liveApplications)
+        guard !result.wasCancelled else { return }
+        lastRefreshStatistics = RefreshStatistics(
+            scannedApplications: result.inventory.count,
+            runningApplications: pending.selection.runningApplications.count,
+            isFullSweep: pending.selection.isFullSweep
+        )
+        cachedInventory = MenuBarInventoryRefreshPolicy.merging(
+            result.inventory,
+            into: cachedInventory,
+            runningApplications: liveApplications
+        )
+        refreshPolicy.recordCompletion(
+            of: pending.selection,
+            completedApplications: Set(result.inventory.keys),
+            applicationsWithMenuExtras: Set(result.inventory.filter {
+                !$0.value.isEmpty
+            }.keys)
+        )
+        if let host = result.systemOverflowApplication,
+           liveApplications.contains(host) {
+            cachedSystemOverflowApplication = host
+            cachedSystemOverflowFrame = result.systemOverflowFrame
+        }
+        lastRefresh = .now
     }
 
     private nonisolated static func scan(
-        applications: [RunningApplicationIdentity]
+        applications: [RunningApplicationIdentity],
+        reservedIDs: Set<CGWindowID>
     ) -> ScanResult {
-        var snapshots: [Snapshot] = []
-        var usedIDs: Set<CGWindowID> = []
+        var inventory: [Application: [Snapshot]] = [:]
+        var usedIDs = reservedIDs
+        var systemOverflowApplication: Application?
         var systemOverflowFrame: CGRect?
 
         for application in applications {
             guard !Task.isCancelled else { break }
+            let generation = application.generation
             let appElement = AXUIElementCreateApplication(
-                application.processIdentifier
+                generation.processIdentifier
             )
-            if application.bundleIdentifier == "com.apple.MenuBarAgent" {
-                systemOverflowFrame = nativeOverflowButtonFrame(
-                    in: appElement
-                )
-            }
+            let overflowFrame = generation.bundleIdentifier == "com.apple.MenuBarAgent"
+                ? nativeOverflowButtonFrame(in: appElement) : nil
+            var snapshots: [Snapshot] = []
             for (ordinal, element) in menuExtras(in: appElement).enumerated() {
+                guard !Task.isCancelled else { break }
                 guard let frame = frame(of: element),
                       frame.width > 0,
                       frame.height > 0 else { continue }
                 let identity = MenuBarAccessibilityIdentity(
-                    processIdentifier: application.processIdentifier,
-                    bundleIdentifier: application.bundleIdentifier,
+                    processIdentifier: generation.processIdentifier,
+                    bundleIdentifier: generation.bundleIdentifier,
                     ordinal: ordinal
                 )
                 var id = syntheticID(for: identity)
@@ -215,10 +347,18 @@ enum MenuBarAccessibility {
                     )
                 ))
             }
+            guard !Task.isCancelled else { break }
+            inventory[generation] = snapshots
+            if generation.bundleIdentifier == "com.apple.MenuBarAgent" {
+                systemOverflowApplication = generation
+                systemOverflowFrame = overflowFrame
+            }
         }
         return ScanResult(
-            snapshots: snapshots,
-            systemOverflowFrame: systemOverflowFrame
+            inventory: inventory,
+            systemOverflowApplication: systemOverflowApplication,
+            systemOverflowFrame: systemOverflowFrame,
+            wasCancelled: Task.isCancelled
         )
     }
 
@@ -317,35 +457,46 @@ enum MenuBarAccessibility {
     private nonisolated static func menuExtras(
         in application: AXUIElement
     ) -> [AXUIElement] {
-        children(of: application)
-            .filter { stringAttribute($0, kAXRoleAttribute) == "AXMenuBar" }
-            .flatMap(children)
-            .filter { stringAttribute($0, kAXSubroleAttribute) == "AXMenuExtra" }
+        var extras: [AXUIElement] = []
+        for child in children(of: application) {
+            guard !Task.isCancelled else { return [] }
+            guard stringAttribute(child, kAXRoleAttribute) == "AXMenuBar" else {
+                continue
+            }
+            for element in children(of: child) {
+                guard !Task.isCancelled else { return [] }
+                if stringAttribute(element, kAXSubroleAttribute) == "AXMenuExtra" {
+                    extras.append(element)
+                }
+            }
+        }
+        return extras
     }
 
     private nonisolated static func nativeOverflowButtonFrame(
         in application: AXUIElement
     ) -> CGRect? {
-        let menuBarWindows = children(of: application).filter {
-            stringAttribute($0, kAXRoleAttribute) == "AXWindow"
-                && frame(of: $0).map {
-                    $0.minY <= 1 && $0.height >= 30 && $0.height <= 40
-                } == true
+        for window in children(of: application) {
+            guard !Task.isCancelled else { return nil }
+            guard stringAttribute(window, kAXRoleAttribute) == "AXWindow",
+                  let windowFrame = frame(of: window),
+                  windowFrame.minY <= 1,
+                  windowFrame.height >= 30,
+                  windowFrame.height <= 40 else { continue }
+            for element in children(of: window) {
+                guard !Task.isCancelled else { return nil }
+                guard stringAttribute(element, kAXRoleAttribute) == "AXButton",
+                      stringAttribute(element, kAXSubroleAttribute).isEmpty,
+                      let buttonFrame = frame(of: element),
+                      buttonFrame.minY <= 2,
+                      buttonFrame.width >= 8,
+                      buttonFrame.width <= 30,
+                      buttonFrame.height >= 28,
+                      buttonFrame.height <= 36 else { continue }
+                return buttonFrame
+            }
         }
-        return menuBarWindows
-            .flatMap(children)
-            .filter {
-                stringAttribute($0, kAXRoleAttribute) == "AXButton"
-                    && stringAttribute($0, kAXSubroleAttribute).isEmpty
-            }
-            .compactMap(frame)
-            .first {
-                $0.minY <= 2
-                    && $0.width >= 8
-                    && $0.width <= 30
-                    && $0.height >= 28
-                    && $0.height <= 36
-            }
+        return nil
     }
 
     private nonisolated static func preferredLabel(
