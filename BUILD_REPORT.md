@@ -1,5 +1,23 @@
 # FoldBar build report
 
+## GitHub developer-preview publication — 2026-10-19
+
+- Published [FoldBar v0.2.0 — Developer preview](https://github.com/Aenvo/FoldBar/releases/tag/v0.2.0)
+  as a **prerelease**, not a stable Latest release. The annotated `v0.2.0` tag
+  resolves to `8ad96938b6d148c12030f4d7cfa7c6719be28776`.
+- Uploaded the existing validated ZIP, `SHA256SUMS.txt`, and
+  `release-manifest.json`. All three GitHub asset digests and downloaded-file
+  hashes match the local files. The ZIP is still 1,991,230 bytes with SHA-256
+  `c3cd05f1e810dec0645b805f303b3700ebcfa768d2582e7a771328deedc21acb`.
+- Added and read back eight Topics: `appkit`, `macos`, `macos-app`, `menu-bar`,
+  `menu-bar-manager`, `notch`, `swift`, and `swiftui`. Description and homepage
+  were preserved. The repository remains **private**; access is required to view
+  or download this release.
+- Both README languages now link to the versioned release and its real assets.
+  Existing package checks are reused; no application rebuild or local install
+  was performed for this publication. Developer-signing, Gatekeeper, notarization
+  and hands-on acceptance limitations below remain unchanged.
+
 ## Release package candidate — 2026-10-18
 
 Prepared a fresh **0.2.0 / build 2 developer-preview** package from application

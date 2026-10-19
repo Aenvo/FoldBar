@@ -14,7 +14,7 @@ FoldBar is a native macOS utility for crowded menu bars, especially on Macs with
 
 **v0.2.0 developer preview · macOS 14+ · Apple Silicon / Intel · MIT**
 
-[Download ZIP](dist/FoldBar-0.2.0-macOS.zip) · [SHA-256 checksums](dist/SHA256SUMS.txt) · [Build manifest](dist/release-manifest.json) · [Version notes](dist/RELEASE_NOTES.md)
+[Download v0.2.0 preview](https://github.com/Aenvo/FoldBar/releases/tag/v0.2.0) · [SHA-256 checksums](https://github.com/Aenvo/FoldBar/releases/download/v0.2.0/SHA256SUMS.txt) · [Build manifest](https://github.com/Aenvo/FoldBar/releases/download/v0.2.0/release-manifest.json) · [Version notes](dist/RELEASE_NOTES.md)
 
 This package is Apple Development signed, without Developer ID signing, Apple notarization, or stapling. It did not pass the local Gatekeeper assessment. This is a developer preview for evaluation; clean-Mac installation acceptance remains pending. You can [build from source](#build-and-development) to use your own signing identity.
 
@@ -29,7 +29,7 @@ This package is Apple Development signed, without Developer ID signing, Apple no
 
 ## Quick start
 
-1. Download `FoldBar-0.2.0-macOS.zip` and `SHA256SUMS.txt` from the same delivery. In your download directory, run:
+1. On the release page, download `FoldBar-0.2.0-macOS.zip` and `SHA256SUMS.txt` from the same version. In your download directory, run:
 
    ```bash
    shasum -a 256 FoldBar-0.2.0-macOS.zip

@@ -14,7 +14,7 @@ FoldBar 是一个原生 macOS 菜单栏收纳工具，面向菜单栏空间不�
 
 **v0.2.0 开发预览 · macOS 14+ · Apple Silicon / Intel · MIT**
 
-[下载 ZIP](dist/FoldBar-0.2.0-macOS.zip) · [SHA-256 校验和](dist/SHA256SUMS.txt) · [构建清单](dist/release-manifest.json) · [版本说明](dist/RELEASE_NOTES.md)
+[下载 v0.2.0 预览版](https://github.com/Aenvo/FoldBar/releases/tag/v0.2.0) · [SHA-256 校验和](https://github.com/Aenvo/FoldBar/releases/download/v0.2.0/SHA256SUMS.txt) · [构建清单](https://github.com/Aenvo/FoldBar/releases/download/v0.2.0/release-manifest.json) · [版本说明](dist/RELEASE_NOTES.md)
 
 当前构建包使用 Apple Development 签名，未进行 Developer ID 签名、Apple 公证或装订，本机 Gatekeeper 评估未通过。它是供验证使用的开发预览，尚未完成干净 Mac 安装验收；需要自行签名时可从[源码构建](#构建与开发)。
 
@@ -29,7 +29,7 @@ FoldBar 是一个原生 macOS 菜单栏收纳工具，面向菜单栏空间不�
 
 ## 快速开始
 
-1. 下载 `FoldBar-0.2.0-macOS.zip` 和同一交付中的 `SHA256SUMS.txt`，在下载目录校验：
+1. 从发布页下载 `FoldBar-0.2.0-macOS.zip` 和同一版本的 `SHA256SUMS.txt`，在下载目录校验：
 
    ```bash
    shasum -a 256 FoldBar-0.2.0-macOS.zip
