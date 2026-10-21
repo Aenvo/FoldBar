@@ -1,5 +1,37 @@
 # FoldBar build report
 
+## GitHub Latest release promotion — 2026-10-21
+
+- Promoted the existing [FoldBar v0.2.0](https://github.com/Aenvo/FoldBar/releases/tag/v0.2.0)
+  to a regular GitHub release and explicitly selected Latest. API read-back
+  confirms `prerelease: false`, `draft: false`, and the latest-release endpoint
+  returns this version. The authenticated repository homepage displays
+  **FoldBar v0.2.0 · Latest** in its Releases sidebar.
+- Updated the bilingual README download labels, release title and notes,
+  package installation instructions, and manifest channel to match. Historical
+  preview checkpoints below retain their original evidence.
+- Repackaged the existing ZIP with only `INSTALL.txt` changed. Every other
+  archive entry, including all signed application files, is byte-identical to
+  the previous package. The application executable SHA-256 remains
+  `bd166c93cc0626ee322bac3ea84bd30fadd48f48c90d4cbc79dbea4bc38c4d32`.
+- `dist/FoldBar-0.2.0-macOS.zip`: **1,991,023 bytes**; SHA-256
+  `12e0086afbaa32210118bde07bab2f1d3d71f4f447a61dea214cdd23e6121cee`.
+  ZIP CRC checks, extracted application strict signature verification, and
+  **x86_64 / arm64** architecture checks passed. Bundle identity, version
+  0.2.0/build 2, team, and macOS 14.0 minimum remain unchanged.
+- Uploaded the ZIP, updated manifest, and checksums to the existing release.
+  All three GitHub asset digests match local SHA-256 values; downloaded files
+  are byte-identical to the corresponding local files. The original tag target
+  remains `8ad96938b6d148c12030f4d7cfa7c6719be28776`.
+- Bilingual README validation and `git diff --check` passed. The temporary
+  extracted app path was absent from Launch Services, and its inspected
+  verification directory was removed.
+- Reused the original application build and its 142-test/14-suite results;
+  this text and packaging update did not rebuild or install the application.
+  Apple Development signing, the previous Gatekeeper rejection, the lack of
+  notarization, and pending hands-on acceptance remain documented below. The repository
+  remains private and requires access to view or download the release.
+
 ## GitHub developer-preview publication — 2026-10-19
 
 - Published [FoldBar v0.2.0 — Developer preview](https://github.com/Aenvo/FoldBar/releases/tag/v0.2.0)

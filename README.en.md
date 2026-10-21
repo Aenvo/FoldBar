@@ -12,11 +12,11 @@
 
 FoldBar is a native macOS utility for crowded menu bars, especially on Macs with a notch. Collect less-used icons in a floating panel, then click the FoldBar arrow in the menu bar to reach them.
 
-**v0.2.0 developer preview · macOS 14+ · Apple Silicon / Intel · MIT**
+**v0.2.0 · macOS 14+ · Apple Silicon / Intel · MIT**
 
-[Download v0.2.0 preview](https://github.com/Aenvo/FoldBar/releases/tag/v0.2.0) · [SHA-256 checksums](https://github.com/Aenvo/FoldBar/releases/download/v0.2.0/SHA256SUMS.txt) · [Build manifest](https://github.com/Aenvo/FoldBar/releases/download/v0.2.0/release-manifest.json) · [Version notes](dist/RELEASE_NOTES.md)
+[Download v0.2.0](https://github.com/Aenvo/FoldBar/releases/tag/v0.2.0) · [SHA-256 checksums](https://github.com/Aenvo/FoldBar/releases/download/v0.2.0/SHA256SUMS.txt) · [Build manifest](https://github.com/Aenvo/FoldBar/releases/download/v0.2.0/release-manifest.json) · [Version notes](dist/RELEASE_NOTES.md)
 
-This package is Apple Development signed, without Developer ID signing, Apple notarization, or stapling. It did not pass the local Gatekeeper assessment. This is a developer preview for evaluation; clean-Mac installation acceptance remains pending. You can [build from source](#build-and-development) to use your own signing identity.
+This package is Apple Development signed, without Developer ID signing, Apple notarization, or stapling. It did not pass the local Gatekeeper assessment, and clean-Mac installation acceptance remains pending. You can [build from source](#build-and-development) to use your own signing identity.
 
 ## Features
 

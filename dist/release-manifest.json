@@ -2,7 +2,7 @@
   "product": "FoldBar",
   "version": "0.2.0",
   "build": "2",
-  "channel": "developer-preview",
+  "channel": "release",
   "source_commit": "beb5f024729b37052b53c86e662ffe2161b5bb33",
   "bundle_identifier": "local.foldbar.app",
   "minimum_macos": "14.0",
@@ -29,8 +29,8 @@
   },
   "archive": {
     "name": "FoldBar-0.2.0-macOS.zip",
-    "bytes": 1991230,
-    "sha256": "c3cd05f1e810dec0645b805f303b3700ebcfa768d2582e7a771328deedc21acb"
+    "bytes": 1991023,
+    "sha256": "12e0086afbaa32210118bde07bab2f1d3d71f4f447a61dea214cdd23e6121cee"
   },
   "executable_sha256": "bd166c93cc0626ee322bac3ea84bd30fadd48f48c90d4cbc79dbea4bc38c4d32"
 }

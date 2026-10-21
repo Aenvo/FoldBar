@@ -12,11 +12,11 @@
 
 FoldBar 是一个原生 macOS 菜单栏收纳工具，面向菜单栏空间不足、尤其是使用刘海屏 Mac 的用户。把暂时不用的图标收进浮动面板，需要时点击菜单栏中的 FoldBar 箭头即可访问。
 
-**v0.2.0 开发预览 · macOS 14+ · Apple Silicon / Intel · MIT**
+**v0.2.0 · macOS 14+ · Apple Silicon / Intel · MIT**
 
-[下载 v0.2.0 预览版](https://github.com/Aenvo/FoldBar/releases/tag/v0.2.0) · [SHA-256 校验和](https://github.com/Aenvo/FoldBar/releases/download/v0.2.0/SHA256SUMS.txt) · [构建清单](https://github.com/Aenvo/FoldBar/releases/download/v0.2.0/release-manifest.json) · [版本说明](dist/RELEASE_NOTES.md)
+[下载 v0.2.0](https://github.com/Aenvo/FoldBar/releases/tag/v0.2.0) · [SHA-256 校验和](https://github.com/Aenvo/FoldBar/releases/download/v0.2.0/SHA256SUMS.txt) · [构建清单](https://github.com/Aenvo/FoldBar/releases/download/v0.2.0/release-manifest.json) · [版本说明](dist/RELEASE_NOTES.md)
 
-当前构建包使用 Apple Development 签名，未进行 Developer ID 签名、Apple 公证或装订，本机 Gatekeeper 评估未通过。它是供验证使用的开发预览，尚未完成干净 Mac 安装验收；需要自行签名时可从[源码构建](#构建与开发)。
+安装包使用 Apple Development 签名，尚未进行 Developer ID 签名、Apple 公证或装订。本机 Gatekeeper 评估未通过，干净 Mac 的安装验收仍待完成；需要自行签名时可从[源码构建](#构建与开发)。
 
 ## 主要功能
 
