@@ -12,11 +12,17 @@
 
 FoldBar is a native macOS utility for crowded menu bars, especially on Macs with a notch. Collect less-used icons in a floating panel, then click the FoldBar arrow in the menu bar to reach them.
 
-**v0.2.0 · macOS 14+ · Apple Silicon / Intel · MIT**
+**v0.2.1 · macOS 14+ · Apple Silicon / Intel · MIT**
 
-[Download v0.2.0](https://github.com/Aenvo/FoldBar/releases/tag/v0.2.0) · [SHA-256 checksums](https://github.com/Aenvo/FoldBar/releases/download/v0.2.0/SHA256SUMS.txt) · [Build manifest](https://github.com/Aenvo/FoldBar/releases/download/v0.2.0/release-manifest.json) · [Version notes](dist/RELEASE_NOTES.md)
+[Download v0.2.1](https://github.com/Aenvo/FoldBar/releases/tag/v0.2.1) · [SHA-256 checksums](https://github.com/Aenvo/FoldBar/releases/download/v0.2.1/SHA256SUMS.txt) · [Build manifest](https://github.com/Aenvo/FoldBar/releases/download/v0.2.1/release-manifest.json) · [Version notes](dist/RELEASE_NOTES.md)
 
-This package is Apple Development signed, without Developer ID signing, Apple notarization, or stapling. It did not pass the local Gatekeeper assessment, and clean-Mac installation acceptance remains pending. You can [build from source](#build-and-development) to use your own signing identity.
+> **Before you install**
+>
+> - The package uses an Apple Development signature, without Developer ID signing, Apple notarization, or stapling. It did not pass the local Gatekeeper assessment. macOS may block the first launch and require the manual confirmation in [First launch instructions](#if-macos-blocks-the-first-launch). Managed devices may prohibit this action.
+> - The minimum system is macOS 14+, with Apple Silicon and Intel architectures included. Only a local upgrade and short startup checks on macOS 27.2 have been completed. Full installation and interaction acceptance on a clean Mac, macOS 14–26, and Intel hardware remains pending.
+> - Normal use requires **Screen Recording** and **Accessibility** grants separately. Menu-bar screenshots stay in memory; see [Permissions and data](#permissions-and-data).
+
+Please check that these installation steps and validation limits suit you before downloading. You can [build from source](#build-and-development) to use your own signing identity.
 
 ## Features
 
@@ -29,10 +35,10 @@ This package is Apple Development signed, without Developer ID signing, Apple no
 
 ## Quick start
 
-1. On the release page, download `FoldBar-0.2.0-macOS.zip` and `SHA256SUMS.txt` from the same version. In your download directory, run:
+1. On the release page, download `FoldBar-0.2.1-macOS.zip` and `SHA256SUMS.txt` from the same version. In your download directory, run:
 
    ```bash
-   shasum -a 256 FoldBar-0.2.0-macOS.zip
+   shasum -a 256 FoldBar-0.2.1-macOS.zip
    ```
 
    Compare the result with the matching filename in `SHA256SUMS.txt`.
@@ -52,9 +58,18 @@ This package is Apple Development signed, without Developer ID signing, Apple no
 
 “Drag menu bar icons directly” is off by default. Enable it to drag without ⌘ while the panel is open. On macOS 27, the panel first refreshes its menu-bar inventory before accepting imports.
 
+### If macOS blocks the first launch
+
+1. Confirm that the package came from this repository's Releases and verify it against `SHA256SUMS.txt` from the same version.
+2. Place the app in Applications and try opening it once.
+3. Only if you trust the source and have verified the file, go to System Settings → Privacy & Security, check for “Open Anyway,” and follow the system prompts.
+4. Once it opens, grant Screen Recording and Accessibility separately as prompted. Restart FoldBar if needed.
+
+If macOS offers no option to allow the app, or your device is managed by an organization, the current package may not run. Keep the error details for a report; do not disable system-wide security protections. See Apple's [instructions](https://support.apple.com/en-us/102445). This first-launch path has not yet completed acceptance on a clean Mac.
+
 ## Compatibility and limitations
 
-The deployment target is macOS 14.0, and the most recent Release build contains `arm64` and `x86_64`. The current version has passed build and short runtime checks on macOS 27; updated hands-on acceptance on macOS 14–26 remains pending.
+macOS 13 and earlier are unsupported. The deployment target is macOS 14.0, and the most recent Release build contains `arm64` and `x86_64`. The current version has passed build and short runtime checks on macOS 27; updated hands-on acceptance on macOS 14–26 remains pending.
 
 | System | Collection mechanism | Appearance |
 | --- | --- | --- |
@@ -76,7 +91,7 @@ The deployment target is macOS 14.0, and the most recent Release build contains 
 | Accessibility | Identifies menu-bar items, reads native help and live positions, and handles user-initiated clicks and dragging |
 | Local preferences | Saves language, appearance, drag options, the application collection, and valid menu-bar position backups |
 
-macOS manages the two permissions separately. After the initial request, later permission actions point to System Settings. If screenshots remain unavailable, check the grants and restart FoldBar. Changing builds or signing identities may cause macOS to request access again.
+macOS manages the two permissions separately. Choosing “Later” in onboarding stops automatic startup reminders; you can still request access through “Permission Settings…” in FoldBar’s right-click menu. After the initial request, later permission actions point to System Settings. If screenshots remain unavailable, check the grants and restart FoldBar. Changing builds or signing identities may cause macOS to request access again.
 
 FoldBar’s own interface follows your language choice. System permission dialogs use the system language; third-party icon names and native help remain in their original language.
 

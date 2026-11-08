@@ -12,11 +12,17 @@
 
 FoldBar 是一个原生 macOS 菜单栏收纳工具，面向菜单栏空间不足、尤其是使用刘海屏 Mac 的用户。把暂时不用的图标收进浮动面板，需要时点击菜单栏中的 FoldBar 箭头即可访问。
 
-**v0.2.0 · macOS 14+ · Apple Silicon / Intel · MIT**
+**v0.2.1 · macOS 14+ · Apple Silicon / Intel · MIT**
 
-[下载 v0.2.0](https://github.com/Aenvo/FoldBar/releases/tag/v0.2.0) · [SHA-256 校验和](https://github.com/Aenvo/FoldBar/releases/download/v0.2.0/SHA256SUMS.txt) · [构建清单](https://github.com/Aenvo/FoldBar/releases/download/v0.2.0/release-manifest.json) · [版本说明](dist/RELEASE_NOTES.md)
+[下载 v0.2.1](https://github.com/Aenvo/FoldBar/releases/tag/v0.2.1) · [SHA-256 校验和](https://github.com/Aenvo/FoldBar/releases/download/v0.2.1/SHA256SUMS.txt) · [构建清单](https://github.com/Aenvo/FoldBar/releases/download/v0.2.1/release-manifest.json) · [版本说明](dist/RELEASE_NOTES.md)
 
-安装包使用 Apple Development 签名，尚未进行 Developer ID 签名、Apple 公证或装订。本机 Gatekeeper 评估未通过，干净 Mac 的安装验收仍待完成；需要自行签名时可从[源码构建](#构建与开发)。
+> **安装前须知**
+>
+> - 安装包使用 Apple Development 开发签名，尚未经过 Developer ID 签名、Apple 公证或装订。本机 Gatekeeper 评估未通过；首次打开可能被系统阻止，需要按[首次打开说明](#首次打开被系统阻止时)手动确认。受管理设备可能不允许这样做。
+> - 系统要求为 macOS 14+，包含 Apple Silicon 与 Intel 两种架构。当前只完成了 macOS 27.2 本机升级与短时启动检查；干净 Mac、macOS 14–26 和 Intel 的完整安装及交互验收仍待完成。
+> - 正常使用需要分别授予**屏幕录制**与**辅助功能**权限。菜单栏截图只保存在内存中；详见[权限与数据](#权限与数据)。
+
+请先确认能够接受上述安装步骤和验证范围，再下载安装。需要自行签名时可从[源码构建](#构建与开发)。
 
 ## 主要功能
 
@@ -29,10 +35,10 @@ FoldBar 是一个原生 macOS 菜单栏收纳工具，面向菜单栏空间不�
 
 ## 快速开始
 
-1. 从发布页下载 `FoldBar-0.2.0-macOS.zip` 和同一版本的 `SHA256SUMS.txt`，在下载目录校验：
+1. 从发布页下载 `FoldBar-0.2.1-macOS.zip` 和同一版本的 `SHA256SUMS.txt`，在下载目录校验：
 
    ```bash
-   shasum -a 256 FoldBar-0.2.0-macOS.zip
+   shasum -a 256 FoldBar-0.2.1-macOS.zip
    ```
 
    将结果与 `SHA256SUMS.txt` 中同名文件的摘要比较。
@@ -52,9 +58,18 @@ FoldBar 是一个原生 macOS 菜单栏收纳工具，面向菜单栏空间不�
 
 “直接拖动菜单栏图标”默认关闭，启用后可在面板打开期间免按 ⌘ 拖动。macOS 27 首次打开面板时会先刷新菜单栏清单，完成后才能导入图标。
 
+### 首次打开被系统阻止时
+
+1. 确认安装包来自本仓库的 Releases，并核对同一版本的 `SHA256SUMS.txt`。
+2. 将应用放入“应用程序”后，先尝试打开一次。
+3. 仅在确认来源可信、文件完整时，前往“系统设置 → 隐私与安全性”，检查是否提供“仍要打开”，并按系统提示确认。
+4. 打开后，再按应用提示分别授予屏幕录制与辅助功能权限；必要时重启 FoldBar。
+
+如果系统没有提供允许打开的选项，或设备受组织策略管理，当前包可能无法运行。请保留错误信息反馈；不要关闭系统整体安全保护。详见 Apple 的[操作说明](https://support.apple.com/en-us/102445)。上述首次打开路径尚未在干净 Mac 上完成验收。
+
 ## 兼容性与限制
 
-部署目标为 macOS 14.0，最近的 Release 构建包含 `arm64` 和 `x86_64`。当前版本在 macOS 27 上完成了构建与短时运行检查；macOS 14–26 的最新实机交互验收仍待完成。
+macOS 13 及以下不支持。部署目标为 macOS 14.0，最近的 Release 构建包含 `arm64` 和 `x86_64`。当前版本在 macOS 27 上完成了构建与短时运行检查；macOS 14–26 的最新实机交互验收仍待完成。
 
 | 系统 | 收纳方式 | 外观 |
 | --- | --- | --- |
@@ -76,7 +91,7 @@ FoldBar 是一个原生 macOS 菜单栏收纳工具，面向菜单栏空间不�
 | 辅助功能 | 识别菜单栏项、读取原生提示和实时位置，并处理用户发起的点击与拖动 |
 | 本地偏好 | 保存界面语言、外观、拖动选项、应用收纳列表及有效的菜单栏位置备份 |
 
-两项权限由 macOS 分别管理。完成首次请求后，后续权限操作会引导至系统设置；如果图标截图仍不可用，请检查授权并重新启动 FoldBar。更换构建或签名身份可能导致系统重新请求授权。
+两项权限由 macOS 分别管理。首次引导选择“稍后”后，启动时不再自动提醒；仍可从 FoldBar 右键菜单的“权限设置…”主动请求。完成首次请求后，后续权限操作会引导至系统设置；如果图标截图仍不可用，请检查授权并重新启动 FoldBar。更换构建或签名身份可能导致系统重新请求授权。
 
 FoldBar 自己的界面遵循所选语言；系统权限弹窗仍使用系统语言，第三方图标名称和原生提示保留原文。
 

@@ -20,7 +20,6 @@ final class StatusBarController {
     private static let privateActivationSettleMilliseconds = 200
     private static let toggleAutosaveName = "foldbar_toggle"
     private static let separatorAutosaveName = "foldbar_separator"
-    private static let combinedPermissionRequestKey = "didRequestCombinedPermissionsV1"
     private static let promotionLogger = Logger(
         subsystem: "local.foldbar.app",
         category: "Promotion"
@@ -2185,13 +2184,20 @@ final class StatusBarController {
     }
 
     private func schedulePermissionOnboarding() {
-        let defaults = UserDefaults.standard
-        guard !defaults.bool(forKey: Self.combinedPermissionRequestKey),
-              !IconCapturer.hasPermission() || !EventForwarder.isTrusted() else { return }
+        guard PermissionOnboardingPolicy().shouldPresentAutomatically(
+            screenGranted: IconCapturer.hasPermission(),
+            accessibilityGranted: EventForwarder.isTrusted()
+        ) else { return }
 
         Task { @MainActor [weak self] in
             guard (try? await Task.sleep(for: .milliseconds(900))) != nil else { return }
-            self?.presentPermissionCenter()
+            guard let self,
+                  !self.permissionFlowActive,
+                  PermissionOnboardingPolicy().shouldPresentAutomatically(
+                    screenGranted: IconCapturer.hasPermission(),
+                    accessibilityGranted: EventForwarder.isTrusted()
+                  ) else { return }
+            self.presentPermissionCenter()
         }
     }
 
@@ -2205,7 +2211,12 @@ final class StatusBarController {
 
         let screenGranted = IconCapturer.hasPermission()
         let accessibilityGranted = EventForwarder.isTrusted()
-        if screenGranted, accessibilityGranted {
+        let policy = PermissionOnboardingPolicy()
+        let destination = policy.destination(
+            screenGranted: screenGranted,
+            accessibilityGranted: accessibilityGranted
+        )
+        if destination == .allGranted {
             showAlert(
                 title: L10n.text(.permissionsGrantedTitle),
                 message: L10n.text(.permissionsGrantedMessage)
@@ -2213,8 +2224,7 @@ final class StatusBarController {
             return
         }
 
-        let defaults = UserDefaults.standard
-        if !defaults.bool(forKey: Self.combinedPermissionRequestKey) {
+        if destination == .requestPermissions {
             let response = runAlert(
                 title: L10n.text(.permissionsOnboardingTitle),
                 message: L10n.text(.permissionsOnboardingMessage),
@@ -2223,8 +2233,9 @@ final class StatusBarController {
                     L10n.text(.later)
                 ]
             )
-            guard response == .alertFirstButtonReturn else { return }
-            defaults.set(true, forKey: Self.combinedPermissionRequestKey)
+            let requestsPermissions = response == .alertFirstButtonReturn
+            policy.recordDecision(requestPermissions: requestsPermissions)
+            guard requestsPermissions else { return }
             if !screenGranted { IconCapturer.requestPermission() }
             if !accessibilityGranted { EventForwarder.promptForAccessibility() }
             return

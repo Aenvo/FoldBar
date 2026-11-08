@@ -1,5 +1,72 @@
 # FoldBar build report
 
+## v0.2.1 source and installation guidance — 2026-11-08
+
+- Advanced the permission-onboarding fix to version **0.2.1 / build 3** for a
+  separate patch release. The earlier v0.2.0 tag and build-2 archive are retained.
+- Both README languages now put signing, first-launch confirmation, permission
+  requirements and unverified system coverage beside the download entry. The
+  first-launch instructions use macOS's per-application confirmation when
+  available, and explain that managed-device policy may prevent opening the app.
+- On macOS 27.2 with Xcode 27.1, **150 tests in 15 suites passed** and the
+  universal x86_64/arm64 Release build succeeded without Swift source warnings.
+  The existing skipped AppIntents metadata warning remains.
+- Gitleaks 8.30.1 scans of the intended repository files and all reachable Git
+  history completed with zero findings. Reports were redacted. This checks
+  credential patterns and does not establish a complete privacy or security audit.
+- Bilingual README validation and `git diff --check` passed. Developer ID
+  signing, notarization, clean-Mac first launch, legacy-system/Intel runtime,
+  and complete panel click/drag acceptance remain pending.
+
+## Permission onboarding fix and local build 3 acceptance — 2026-11-08
+
+- Separated the onboarding decision from the existing system-permission request
+  history. Choosing Later stops automatic startup reminders; the manual
+  Permission Settings action still offers the first request. Previously
+  requested users retain settings-only recovery. The delayed startup action
+  rechecks the decision and current grants before presenting a reminder.
+- Added eight isolated-UserDefaults regression tests for Later across restart,
+  a subsequent manual request, denied/partial grants, legacy request history,
+  a decision made while presentation is pending, and externally granted access.
+  These tests do not invoke or reset macOS TCC prompts.
+- Xcode 27.1 (`27A9275`), macOS 27.2 (`26B123`): **150 tests in 15 suites passed**.
+  The universal **x86_64 / arm64 Release** build succeeded without Swift source
+  warnings; the existing skipped AppIntents metadata warning remains.
+- `project.yml` advances the build number to **3**, preserving version 0.2.0,
+  `local.foldbar.app`, team `42MUMXKY79`, and macOS 14.0 minimum. XcodeGen
+  generated the project and included the policy and test sources.
+- A separate `FoldBar-0.2.0-build3-macOS.zip` candidate is retained outside this
+  repository. Size: **1,991,879 bytes**; SHA-256:
+  `166600b52b21a35de953ca16b52d6167601129962526c4c5efb8426af3b18c7d`.
+  ZIP integrity, extracted strict signature verification, architecture and
+  bundle metadata checks passed. Its manifest identifies the modified source
+  snapshot based on `f2dd588`, rather than claiming an unchanged commit build.
+- Backed up the previous installed build, quit it through its native menu,
+  installed from the verified candidate archive at `/Applications/FoldBar.app`,
+  and relaunched that sole installed copy. Its executable matches the candidate:
+  `853eaac94bb6df59ffc737655fcd1e6708cf63b4a80885f0661e68f7fbc5cd99`.
+  The designated requirement matches the prior installation. The managed set,
+  language, direct-drag option and permission history checked before and after
+  installation were unchanged.
+- Native About displayed **0.2.0 (3)**. Normal quit, relaunch and the trigger's
+  return were observed. Accessibility nodes for three managed applications
+  returned after quit and disappeared again after startup settled. Direct status
+  control clicking was rejected by the UI tool as off-screen, so panel proxy
+  clicking and dragging remain unverified in this pass.
+- Matching universal dSYM UUIDs were verified and symbols retained outside the
+  candidate archive. Test hosts exited; temporary Debug/Release and extracted
+  app registrations were removed, and the exact inspected temporary directories
+  were deleted. Repeated XcodeGen generation, bilingual README validation and
+  `git diff --check` passed.
+- Apple Development signing is retained. No Developer ID Application identity
+  is available locally; the candidate's Gatekeeper assessment remains rejected
+  (exit 3). Public-distribution signing, notarization, fresh-Mac permission
+  dialogs, macOS 14–26/Intel and multi-display runtime acceptance remain pending.
+  Startup logs also contain preference-domain access and Security performance
+  diagnostics; this observation does not establish a clean or long-running pass.
+- The tracked `dist/` build-2 package and remote Release were not replaced by
+  this local candidate. No public-visibility change was performed.
+
 ## GitHub Latest release promotion — 2026-10-21
 
 - Promoted the existing [FoldBar v0.2.0](https://github.com/Aenvo/FoldBar/releases/tag/v0.2.0)
