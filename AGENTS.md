@@ -88,7 +88,7 @@ The stable application identity is:
 - Bundle identifier: `local.foldbar.app`
 - Deployment target: macOS 14.0
 - Development team: `42MUMXKY79`
-- Current version baseline: 0.2.0, build 2
+- Current version baseline: 0.2.1, build 3
 
 `/Applications/FoldBar.app` is the only intended installed/running copy on the current development Mac. Keep build products in temporary paths, and do not copy another FoldBar bundle into Downloads, the repository, or a second Applications directory for execution. Before replacing the installed app, quit it cleanly, verify the candidate's bundle identifier and signature, install one copy, and relaunch that copy explicitly.
 
@@ -151,7 +151,7 @@ counts and pixel dimensions, and use no-content heap/leaks reports.
 
 FoldBar uses public AppKit, CoreGraphics, ScreenCaptureKit, Accessibility, and ServiceManagement APIs. On macOS 27 it also dynamically resolves MenuBarClientCore's private assessment-mode visibility assertion; this can change without compatibility guarantees and is not suitable for App Store distribution. It contains adapted MIT-licensed MenubarHide work covered by `THIRD_PARTY_NOTICES.md`. Ice may be studied for product behavior and public issue context, but no GPL-3.0 Ice source may be copied into this repository.
 
-The checked-in 0.2.0 ZIP is Apple Development signed for local handoff. It is not Developer ID signed, notarized, stapled, or a public release. Do not claim otherwise, create a tag or GitHub Release, notarize, publish, push, or change remote state without explicit user authorization.
+The current checked-in v0.2.1 ZIP is Apple Development signed. It is not Developer ID signed, notarized, or stapled; Gatekeeper first-launch acceptance on a clean Mac remains unverified. The authorized v0.2.1 GitHub Release is a regular Latest release; that channel does not establish signing or runtime readiness. The repository remained private at publication on 2026-11-08. Preserve the v0.2.0 tag and archive. Do not claim broader readiness, create another tag or GitHub Release, notarize, publish, push, or change remote state without explicit user authorization. A repository-visibility change requires its own explicit authorization.
 
 ## Git hygiene
 

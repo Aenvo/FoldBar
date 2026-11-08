@@ -1,5 +1,24 @@
 # FoldBar build report
 
+## v0.2.1 GitHub publication — 2026-11-08
+
+- Published [FoldBar v0.2.1](https://github.com/Aenvo/FoldBar/releases/tag/v0.2.1)
+  as a regular Latest release. API read-back confirms `draft: false`,
+  `prerelease: false`, and the latest-release endpoint returns v0.2.1. The
+  authenticated repository homepage displays **FoldBar v0.2.1 · Latest**.
+- The v0.2.1 annotated tag points to package commit
+  `2fb8859aabe2d761bd031000acb168f5a85af392`. Its application source and project
+  configuration match source commit `3edd3f2c5bfccaed91aa0afd704d969afbed3487`.
+- Downloaded all three uploaded assets with authenticated GitHub access. They
+  match the local package, manifest and checksum list byte-for-byte. The ZIP CRC,
+  bundle version/minimum-system metadata and executable digest were rechecked;
+  published API asset digests and bilingual release notes also match.
+- The homepage README renders the updated download entry and installation
+  notice; the English mirror was also updated. The v0.2.0 Release and archive are retained. The repository remains
+  **private**; anonymous public downloads and clean-Mac first launch have not
+  been accepted. Publication does not remove the signing and runtime limitations
+  recorded below.
+
 ## v0.2.1 release package — 2026-11-08
 
 - Packaged version **0.2.1 / build 3** from application source commit
