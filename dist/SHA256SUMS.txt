@@ -1,2 +1,2 @@
-12e0086afbaa32210118bde07bab2f1d3d71f4f447a61dea214cdd23e6121cee  FoldBar-0.2.0-macOS.zip
-c21a48da1eb0a1de74bae09cfa4da4f6371f023867085c038d567cfbbfcfd2bf  release-manifest.json
+f249dd56da66345961187bd53aea7e0a5701b74044e1e5962a04c6b83c251318  FoldBar-0.2.1-macOS.zip
+affeb3c22a6aa12a0db8806fc0bf7f19deb5c5fd8b01049fb4f918674b67915f  release-manifest.json

@@ -1,5 +1,31 @@
 # FoldBar build report
 
+## v0.2.1 release package — 2026-11-08
+
+- Packaged version **0.2.1 / build 3** from application source commit
+  `3edd3f2c5bfccaed91aa0afd704d969afbed3487`. Later packaging/documentation commits
+  preserve that application source and project configuration.
+- `dist/FoldBar-0.2.1-macOS.zip`: **1,992,459 bytes**; SHA-256
+  `f249dd56da66345961187bd53aea7e0a5701b74044e1e5962a04c6b83c251318`. ZIP integrity and strict signature checks
+  passed after extraction; x86_64/arm64 and macOS 14.0 metadata were verified.
+- The bilingual installation instructions and release notes explain manual
+  first-launch confirmation, separate permissions and pending system acceptance.
+  The manifest and checksums cover this package. The v0.2.0 archive is retained.
+- Apple Development signing is preserved; Gatekeeper returned exit 3. Developer
+  ID signing, notarization and clean-Mac/legacy-system acceptance remain pending.
+- Installed the verified archive at `/Applications/FoldBar.app` after backing up
+  and normally quitting the prior copy. Strict signature verification passed;
+  the designated requirement is unchanged. The installed executable matches
+  the manifest, and native About displayed **0.2.1 (3)**. Normal quit and relaunch
+  passed, with the selected managed-list, language, drag and permission-history
+  preferences preserved. Three managed applications' Accessibility nodes
+  returned on quit and disappeared after startup settled. This is a local
+  upgrade check, not clean-Mac or complete panel click/drag acceptance.
+- Matching universal dSYM UUIDs were checked and symbols retained separately.
+  XcodeGen reproduced the committed project; temporary test/build/extracted app
+  processes and Launch Services entries were absent before their exact inspected
+  work directories were removed.
+
 ## v0.2.1 source and installation guidance — 2026-11-08
 
 - Advanced the permission-onboarding fix to version **0.2.1 / build 3** for a
