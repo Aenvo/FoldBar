@@ -42,7 +42,7 @@ Please check that these installation steps and validation limits suit you before
    ```
 
    Compare the result with the matching filename in `SHA256SUMS.txt`.
-2. Extract the archive, quit the previous FoldBar version, and drag `FoldBar.app` to Applications. Open it as `/Applications/FoldBar.app`. The archive includes a bilingual `INSTALL.txt` and license files. macOS may block this development-signed package; see Apple’s [guide to opening apps safely](https://support.apple.com/en-us/102445).
+2. Extract the ZIP, drag `FoldBar.app` to Applications, and double-click it there. If macOS blocks the app, see the [first launch instructions](#if-macos-blocks-the-first-launch). The archive includes a bilingual `INSTALL.txt` and license files.
 3. Follow the app’s guidance to grant **Screen Recording** and **Accessibility** separately. You may need to restart FoldBar after first granting Screen Recording.
 4. Click the FoldBar arrow in the menu bar to open the panel, then hold ⌘ and drag a visible menu-bar icon into the dashed area.
 5. Click a panel icon to access its application. To keep an icon in the menu bar, drag it to “Keep visible.”
@@ -66,6 +66,10 @@ Please check that these installation steps and validation limits suit you before
 4. Once it opens, grant Screen Recording and Accessibility separately as prompted. Restart FoldBar if needed.
 
 If macOS offers no option to allow the app, or your device is managed by an organization, the current package may not run. Keep the error details for a report; do not disable system-wide security protections. See Apple's [instructions](https://support.apple.com/en-us/102445). This first-launch path has not yet completed acceptance on a clean Mac.
+
+### Upgrading an existing installation
+
+If you already have FoldBar installed, quit it before replacing the copy in Applications with the extracted `FoldBar.app`. Then open the new version.
 
 ## Compatibility and limitations
 
