@@ -35,14 +35,10 @@ Please check that these installation steps and validation limits suit you before
 
 ## Quick start
 
-1. On the release page, download `FoldBar-0.2.1-macOS.zip` and `SHA256SUMS.txt` from the same version. In your download directory, run:
+1. Under **Assets** on the [release page](https://github.com/Aenvo/FoldBar/releases/tag/v0.2.1), download `FoldBar-0.2.1-macOS.zip` and `SHA256SUMS.txt`.
 
-   ```bash
-   shasum -a 256 FoldBar-0.2.1-macOS.zip
-   ```
-
-   Compare the result with the matching filename in `SHA256SUMS.txt`.
-2. Extract the ZIP, drag `FoldBar.app` to Applications, and double-click it there. If macOS blocks the app, see the [first launch instructions](#if-macos-blocks-the-first-launch). The archive includes a bilingual `INSTALL.txt` and license files.
+   Open Terminal, type `shasum -a 256` followed by a space, drag the downloaded ZIP from Finder into the Terminal window, and press Return. Open `SHA256SUMS.txt` and find the line for that ZIP. Continue once its first 64 characters match the first 64 characters of the Terminal output.
+2. Double-click the ZIP in Finder to extract it, drag `FoldBar.app` to Applications, and double-click it there. If macOS blocks the app, see the [first launch instructions](#if-macos-blocks-the-first-launch). The archive includes a bilingual `INSTALL.txt` and license files.
 3. Follow the app’s guidance to grant **Screen Recording** and **Accessibility** separately. You may need to restart FoldBar after first granting Screen Recording.
 4. Click the FoldBar arrow in the menu bar to open the panel, then hold ⌘ and drag a visible menu-bar icon into the dashed area.
 5. Click a panel icon to access its application. To keep an icon in the menu bar, drag it to “Keep visible.”
@@ -60,12 +56,12 @@ Please check that these installation steps and validation limits suit you before
 
 ### If macOS blocks the first launch
 
-1. Confirm that the package came from this repository's Releases and verify it against `SHA256SUMS.txt` from the same version.
-2. Place the app in Applications and try opening it once.
-3. Only if you trust the source and have verified the file, go to System Settings → Privacy & Security, check for “Open Anyway,” and follow the system prompts.
-4. Once it opens, grant Screen Recording and Accessibility separately as prompted. Restart FoldBar if needed.
+1. Confirm that the ZIP came from this repository's release page and check its checksum as described in [Quick start](#quick-start). Then try opening FoldBar once from Applications.
+2. If macOS says it can't verify the developer or check FoldBar for malicious software, dismiss the alert. Open System Settings → Privacy & Security and scroll down to Security.
+3. If macOS shows an “Open Anyway” button for FoldBar, click it, then choose “Open” in the confirmation dialog. This confirmation applies only to FoldBar.
+4. Once FoldBar opens, grant Screen Recording and Accessibility separately as prompted. You may need to restart FoldBar after granting Screen Recording for the first time.
 
-If macOS offers no option to allow the app, or your device is managed by an organization, the current package may not run. Keep the error details for a report; do not disable system-wide security protections. See Apple's [instructions](https://support.apple.com/en-us/102445). This first-launch path has not yet completed acceptance on a clean Mac.
+If you don't see “Open Anyway,” this version may be blocked on your Mac. A Mac managed by your employer or school may restrict this option. If you report a problem, include the exact alert and your macOS version. The first launch of this release package has yet to be tested on a clean Mac. [Apple's instructions](https://support.apple.com/en-us/102445)
 
 ### Upgrading an existing installation
 
