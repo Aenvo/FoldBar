@@ -1,5 +1,13 @@
 # FoldBar build report
 
+## Public repository verification — 2026-11-09
+
+- Made the repository public after publishing the bilingual installation guide.
+  Verified that both READMEs render on GitHub without signing in.
+- Downloaded the v0.2.1 ZIP, checksum list, and manifest without signing in.
+  All three files match the tracked copies, and the published SHA-256 checks
+  pass. First launch on a clean Mac remains untested.
+
 ## v0.2.1 GitHub publication — 2026-11-08
 
 - Published [FoldBar v0.2.1](https://github.com/Aenvo/FoldBar/releases/tag/v0.2.1)
@@ -13,11 +21,10 @@
   match the local package, manifest and checksum list byte-for-byte. The ZIP CRC,
   bundle version/minimum-system metadata and executable digest were rechecked;
   published API asset digests and bilingual release notes also match.
-- The homepage README renders the updated download entry and installation
-  notice; the English mirror was also updated. The v0.2.0 Release and archive are retained. The repository remains
-  **private**; anonymous public downloads and clean-Mac first launch have not
-  been accepted. Publication does not remove the signing and runtime limitations
-  recorded below.
+- The homepage README rendered the updated download entry and installation
+  notice. The English mirror was also updated. The v0.2.0 Release and archive
+  were retained. At this checkpoint the repository was private, and anonymous
+  downloads and clean-Mac first launch were still untested.
 
 ## v0.2.1 release package — 2026-11-08
 
